@@ -1,11 +1,19 @@
 package mr
 
-import "log"
-import "net"
-import "os"
-import "net/rpc"
-import "net/http"
+import (
+	"log"
+	"net"
+	"net/http"
+	"net/rpc"
+	"os"
+)
 
+// const UN_STARTED = 0
+// const MAP_FINISHED = 1
+// const REDUCE_FINISHED = 2
+const ASK_MAP = 3
+const FINISH_MAP = 4
+const FINISH_REDUCE = 5
 
 type Coordinator struct {
 	nReduce      int
@@ -16,22 +24,44 @@ type Coordinator struct {
 	reduceCount  int
 }
 
-// Your code here -- RPC handlers for the worker to call.
-
-//
-// an example RPC handler.
-//
-// the RPC argument and reply types are defined in rpc.go.
-//
 func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
-	reply.Y = args.X + 1
+
+	// check worker's request
+	if args.query_id == FINISH_REDUCE {
+		c.reduceStates[args.task_id] = true
+		c.reduceCount--
+	} else if args.query_id == FINISH_MAP {
+		c.mapStates[args.task_id] = true
+		c.mapCount--
+	}
+
+	// send tasks to worker
+	if c.mapCount > 0 {
+		// Send map task to workers
+		for i, finish := range c.mapStates {
+			if !finish {
+				reply.task_id = i
+				reply.task = c.tasks[i]
+				reply.nReduce = c.nReduce
+				break
+			}
+		}
+
+	} else if c.reduceCount > 0 {
+		// Send map task to workers
+		for i, finish := range c.reduceStates {
+			if !finish {
+				reply.task_id = i
+				reply.task = ""
+				reply.nReduce = c.nReduce
+				break
+			}
+		}
+	}
 	return nil
 }
 
-
-//
 // start a thread that listens for RPCs from worker.go
-//
 func (c *Coordinator) server() {
 	rpc.Register(c)
 	rpc.HandleHTTP()
@@ -45,17 +75,10 @@ func (c *Coordinator) server() {
 	go http.Serve(l, nil)
 }
 
-//
 // main/mrcoordinator.go calls Done() periodically to find out
 // if the entire job has finished.
-//
 func (c *Coordinator) Done() bool {
-	ret := false
-
-	// Your code here.
-
-
-	return ret
+	return c.reduceCount == 0
 }
 
 // create a Coordinator.
