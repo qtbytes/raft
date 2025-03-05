@@ -17,14 +17,16 @@ import (
 //
 
 type ExampleArgs struct {
-	query_id int
-	task_id  int
+	QueryID int
+	TaskID  int
 }
 
 type ExampleReply struct {
-	task_id int
-	task    string
-	nReduce int
+	TaskType int
+	TaskID   int
+	Task     string
+	NMap     int
+	NReduce  int
 }
 
 // Add your RPC definitions here.
