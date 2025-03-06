@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-
 #
 # map-reduce tests
 #
 
 # un-comment this to run the tests with the Go race detector.
-# RACE=-race
+RACE=-race
 
 if [[ "$OSTYPE" = "darwin"* ]]
 then
