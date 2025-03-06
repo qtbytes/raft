@@ -35,11 +35,14 @@ func ihash(key string) int {
 // main/mrworker.go calls this function.
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
+	// mutex := sync.Mutex{}
+	// cond := sync.Cond(mutex)
 	for {
 		// Workers will sometimes need to wait, e.g.
 		// reduces can't start until the last map has finished.
 		// One possibility is for workers to periodically ask the coordinator for work,
 		// sleeping with time.Sleep() between each request.
+
 		// Another possibility is for the relevant RPC handler in the coordinator
 		// to have a loop that waits, either with time.Sleep() or sync.Cond.
 		// Go runs the handler for each RPC in its own thread,
@@ -171,14 +174,14 @@ func CallExample(query_id, TaskID int) ExampleReply {
 	ok := call("Coordinator.Example", &args, &reply)
 	if ok {
 		if query_id == ASK_MAP {
-			fmt.Printf("Worker ask for map task %v\n", reply.TaskID)
+			log.Printf("Worker ask for map task %v\n", reply.TaskID)
 		} else if query_id == ASK_REDUCE {
-			fmt.Printf("Worker ask for reduce task %v\n", reply.TaskID)
+			log.Printf("Worker ask for reduce task %v\n", reply.TaskID)
 		} else {
-			fmt.Printf("Worker finished reduce task %v\n", args.TaskID)
+			log.Printf("Worker finished reduce task %v\n", args.TaskID)
 		}
 	} else {
-		fmt.Printf("call failed!\n")
+		log.Printf("call failed!\n")
 	}
 	return reply
 }
@@ -200,6 +203,6 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 		return true
 	}
 
-	fmt.Println(err)
+	log.Println(err)
 	return false
 }
