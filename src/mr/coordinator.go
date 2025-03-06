@@ -1,13 +1,13 @@
 package mr
 
 import (
-	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"net/rpc"
 	"os"
 	"sync"
+	"time"
 )
 
 // task state
@@ -35,6 +35,15 @@ type Coordinator struct {
 	mapCount     int
 	reduceStates []int
 	reduceCount  int
+	// The coordinator can't reliably distinguish between crashed workers,
+	// workers that are alive but have stalled for some reason,
+	// and workers that are executing but too slowly to be useful.
+	// The best you can do is have the coordinator wait for some amount of time,
+	// and then give up and re-issue the task to a different worker.
+	// For this lab, have the coordinator wait for ten seconds; after that the
+	// coordinator should assume the worker has died (of course, it might not have).
+	mapExpiry    []time.Time
+	reduceExpiry []time.Time
 }
 
 func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
@@ -43,24 +52,29 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 
 	// check worker's request
 	if args.QueryID == FINISH {
-		c.reduceStates[args.TaskID] = FINISHED
-		c.reduceCount--
+		if c.reduceStates[args.TaskID] != FINISHED {
+			c.reduceStates[args.TaskID] = FINISHED
+			c.reduceCount--
+		}
 	} else if args.QueryID == ASK_REDUCE {
-		c.mapStates[args.TaskID] = FINISHED
-		c.mapCount--
+		if c.mapStates[args.TaskID] != FINISHED {
+			c.mapStates[args.TaskID] = FINISHED
+			c.mapCount--
+		}
 	}
 
 	// send tasks to worker
 	if c.mapCount > 0 {
 		// Send map task to workers
 		for i, state := range c.mapStates {
-			if state == UN_STARTED {
+			if state == UN_STARTED || (state == STARTED && time.Since(c.mapExpiry[i]) >= TIMEOUT) {
 				c.mapStates[i] = STARTED
+				c.mapExpiry[i] = time.Now()
 				reply.TaskType = MAP_TASK
 				reply.TaskID = i
 				reply.Task = c.tasks[i]
 				reply.NReduce = c.nReduce
-				fmt.Println("Map task states", c.mapStates)
+				log.Println("Map task states", c.mapStates)
 				break
 			}
 		}
@@ -68,12 +82,13 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 	} else if c.reduceCount > 0 {
 		// Send reduce task to workers
 		for i, state := range c.reduceStates {
-			if state == UN_STARTED {
+			if state == UN_STARTED || (state == STARTED && time.Since(c.reduceExpiry[i]) >= TIMEOUT) {
 				c.reduceStates[i] = STARTED
+				c.reduceExpiry[i] = time.Now()
 				reply.TaskType = REDUCE_TASK
 				reply.TaskID = i
 				reply.NMap = c.nMap
-				fmt.Println("Reduce task states", c.reduceStates)
+				log.Println("Reduce task states", c.reduceStates)
 				break
 			}
 		}
@@ -116,6 +131,8 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c.mapStates = make([]int, c.nMap)
 	c.reduceCount = nReduce
 	c.reduceStates = make([]int, nReduce)
+	c.mapExpiry = make([]time.Time, c.nMap)
+	c.reduceExpiry = make([]time.Time, c.nReduce)
 
 	c.server()
 	return &c
