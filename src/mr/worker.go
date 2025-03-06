@@ -84,7 +84,6 @@ func Worker(mapf func(string, string) []KeyValue,
 				buckets[i] = append(buckets[i], kv)
 			}
 
-			// TODO: Use temp files to avoid crash when writting
 			for i, bucket := range buckets {
 				// Save results of MAP task to mr-X-Y
 				filename := fmt.Sprintf("mr-%d-%d", reply.TaskID, i)
@@ -127,7 +126,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			sort.Sort(ByKey(kva))
 
 			oname := fmt.Sprintf("mr-out-%d", reply.TaskID)
-			ofile, _ := os.Create(oname)
+			ofile, _ := os.CreateTemp("/tmp/", oname)
 
 			//
 			// call Reduce on each distinct key in intermediate[],
@@ -150,6 +149,8 @@ func Worker(mapf func(string, string) []KeyValue,
 
 				i = j
 			}
+			ofile.Close()
+			os.Rename(ofile.Name(), oname)
 			reply = CallExample(FINISH, reply.TaskID)
 		}
 	}
@@ -173,13 +174,16 @@ func CallExample(query_id, TaskID int) ExampleReply {
 	// the Example() method of struct Coordinator.
 	ok := call("Coordinator.Example", &args, &reply)
 	if ok {
-		if query_id == ASK_MAP {
-			log.Printf("Worker ask for map task %v\n", reply.TaskID)
-		} else if query_id == ASK_REDUCE {
-			log.Printf("Worker ask for reduce task %v\n", reply.TaskID)
-		} else {
-			log.Printf("Worker finished reduce task %v\n", args.TaskID)
+		if DEBUG {
+			if query_id == ASK_MAP {
+				log.Printf("Worker ask for map task %v\n", reply.TaskID)
+			} else if query_id == ASK_REDUCE {
+				log.Printf("Worker ask for reduce task %v\n", reply.TaskID)
+			} else {
+				log.Printf("Worker finished reduce task %v\n", args.TaskID)
+			}
 		}
+
 	} else {
 		log.Printf("call failed!\n")
 	}

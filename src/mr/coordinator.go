@@ -25,6 +25,7 @@ const MAP_TASK = 6
 const REDUCE_TASK = 7
 
 const TIMEOUT = 10
+const DEBUG = true
 
 type Coordinator struct {
 	lock         sync.Mutex
@@ -67,14 +68,17 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 	if c.mapCount > 0 {
 		// Send map task to workers
 		for i, state := range c.mapStates {
-			if state == UN_STARTED || (state == STARTED && time.Since(c.mapExpiry[i]) >= TIMEOUT) {
+			if state == UN_STARTED || (state == STARTED && time.Since(c.mapExpiry[i]).Seconds() >= TIMEOUT) {
 				c.mapStates[i] = STARTED
 				c.mapExpiry[i] = time.Now()
 				reply.TaskType = MAP_TASK
 				reply.TaskID = i
 				reply.Task = c.tasks[i]
 				reply.NReduce = c.nReduce
-				log.Println("Map task states", c.mapStates)
+				reply.NMap = c.nMap
+				if DEBUG {
+					log.Println("Map task states", c.mapStates)
+				}
 				break
 			}
 		}
@@ -82,18 +86,27 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 	} else if c.reduceCount > 0 {
 		// Send reduce task to workers
 		for i, state := range c.reduceStates {
-			if state == UN_STARTED || (state == STARTED && time.Since(c.reduceExpiry[i]) >= TIMEOUT) {
+			if state == UN_STARTED || (state == STARTED && time.Since(c.reduceExpiry[i]).Seconds() >= TIMEOUT) {
 				c.reduceStates[i] = STARTED
 				c.reduceExpiry[i] = time.Now()
 				reply.TaskType = REDUCE_TASK
 				reply.TaskID = i
 				reply.NMap = c.nMap
-				log.Println("Reduce task states", c.reduceStates)
+				// reply.Task = ""
+				// reply.NReduce = c.nReduce
+				if DEBUG {
+					log.Println("Reduce task states", c.reduceStates)
+
+				}
 				break
 			}
 		}
 	} else {
 		reply.TaskType = FINISH
+		// reply.TaskID = 0 - 1
+		// reply.Task = ""
+		// reply.NReduce = c.nReduce
+		// reply.NMap = c.nMap
 	}
 	return nil
 }
@@ -115,6 +128,8 @@ func (c *Coordinator) server() {
 // main/mrcoordinator.go calls Done() periodically to find out
 // if the entire job has finished.
 func (c *Coordinator) Done() bool {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	return c.reduceCount == 0
 }
 
