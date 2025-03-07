@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/rpc"
 	"os"
@@ -35,124 +35,40 @@ func ihash(key string) int {
 // main/mrworker.go calls this function.
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
-	// mutex := sync.Mutex{}
-	// cond := sync.Cond(mutex)
+
+	taskID := -1
+	taskType := -1
+
 	for {
+		// ask task from coordinator
+		var queryID int
+		if taskID == -1 && taskType == -1 {
+			queryID = ASK_TASK
+		} else {
+			queryID = FINISH_TASK
+		}
+		reply := CallExample(queryID, taskID, taskType)
+
+		// Record the next call args
+		taskID = reply.TaskID
+		taskType = reply.TaskType
+		// Map task
+		if reply.TaskType == MAP_TASK {
+			handleMapTask(reply, mapf)
+			log.Printf("Worker received Map task %v", reply.TaskID)
+		} else if reply.TaskType == REDUCE_TASK {
+			log.Printf("Worker received Reduce task %v", reply.TaskID)
+			handleReduceTask(reply, reducef)
+		} else if reply.TaskType == FINISHED {
+			log.Println("Worker received All jobs done")
+			return
+		}
 		// Workers will sometimes need to wait, e.g.
 		// reduces can't start until the last map has finished.
 		// One possibility is for workers to periodically ask the coordinator for work,
 		// sleeping with time.Sleep() between each request.
 
-		// Another possibility is for the relevant RPC handler in the coordinator
-		// to have a loop that waits, either with time.Sleep() or sync.Cond.
-		// Go runs the handler for each RPC in its own thread,
-		// so the fact that one handler is waiting needn't prevent the coordinator
-		// from processing other RPCs.
-
-		// ask task from coordinator
-		reply := CallExample(ASK_MAP, -1)
-		if reply.TaskType == FINISH {
-			return
-		}
-
-		// Map task
-		if reply.TaskType == MAP_TASK {
-			//
-			// read each input file,
-			// pass it to Map,
-			// Save Map output to mr-X.
-			//
-			n := reply.NReduce
-			buckets := make([][]KeyValue, n)
-			for i := range buckets {
-				buckets[i] = make([]KeyValue, 0)
-			}
-			filename := reply.Task
-
-			file, err := os.Open(filename)
-			if err != nil {
-				log.Fatalf("cannot open %v", filename)
-			}
-			content, err := ioutil.ReadAll(file)
-			if err != nil {
-				log.Fatalf("cannot read %v", filename)
-			}
-			file.Close()
-			kva := mapf(filename, string(content))
-			for _, kv := range kva {
-				i := ihash(kv.Key) % n
-				buckets[i] = append(buckets[i], kv)
-			}
-
-			for i, bucket := range buckets {
-				// Save results of MAP task to mr-X-Y
-				filename := fmt.Sprintf("mr-%d-%d", reply.TaskID, i)
-				file, err = os.CreateTemp("/tmp/", filename)
-				if err != nil {
-					log.Fatalf("cannot open %v", filename)
-				}
-				enc := json.NewEncoder(file)
-				for _, kv := range bucket {
-					err := enc.Encode(&kv)
-					if err != nil {
-						log.Fatalf("cannot encode %v to json", kv)
-					}
-				}
-				file.Close()
-				os.Rename(file.Name(), filename)
-			}
-			// Send filepath back to coordiantor
-			reply = CallExample(ASK_REDUCE, reply.TaskID)
-		}
-
-		if reply.TaskType == REDUCE_TASK {
-
-			kva := []KeyValue{}
-			for i := range reply.NMap {
-				filename := fmt.Sprintf("mr-%d-%d", i, reply.TaskID)
-				file, err := os.Open(filename)
-				if err != nil {
-					log.Fatalf("cannot open %v", filename)
-				}
-				dec := json.NewDecoder(file)
-				for {
-					var kv KeyValue
-					if err := dec.Decode(&kv); err != nil {
-						break
-					}
-					kva = append(kva, kv)
-				}
-			}
-			sort.Sort(ByKey(kva))
-
-			oname := fmt.Sprintf("mr-out-%d", reply.TaskID)
-			ofile, _ := os.CreateTemp("/tmp/", oname)
-
-			//
-			// call Reduce on each distinct key in intermediate[],
-			// and print the result to mr-out-X.
-			//
-			i := 0
-			for i < len(kva) {
-				j := i + 1
-				for j < len(kva) && kva[j].Key == kva[i].Key {
-					j++
-				}
-				values := []string{}
-				for k := i; k < j; k++ {
-					values = append(values, kva[k].Value)
-				}
-				output := reducef(kva[i].Key, values)
-
-				// this is the correct format for each line of Reduce output.
-				fmt.Fprintf(ofile, "%v %v\n", kva[i].Key, output)
-
-				i = j
-			}
-			ofile.Close()
-			os.Rename(ofile.Name(), oname)
-			reply = CallExample(FINISH, reply.TaskID)
-		}
+		// time.Sleep(time.Second)
 	}
 }
 
@@ -160,10 +76,10 @@ func Worker(mapf func(string, string) []KeyValue,
 //
 // the RPC argument and reply types are defined in rpc.go.
 
-func CallExample(query_id, TaskID int) ExampleReply {
+func CallExample(query_id, TaskID, TaskType int) ExampleReply {
 
 	// declare an argument structure.
-	args := ExampleArgs{query_id, TaskID}
+	args := ExampleArgs{query_id, TaskID, TaskType}
 
 	// declare a reply structure.
 	reply := ExampleReply{}
@@ -175,15 +91,12 @@ func CallExample(query_id, TaskID int) ExampleReply {
 	ok := call("Coordinator.Example", &args, &reply)
 	if ok {
 		if DEBUG {
-			if query_id == ASK_MAP {
-				log.Printf("Worker ask for map task %v\n", reply.TaskID)
-			} else if query_id == ASK_REDUCE {
-				log.Printf("Worker ask for reduce task %v\n", reply.TaskID)
+			if query_id == ASK_TASK {
+				log.Printf("Worker ask for the first task\n")
 			} else {
-				log.Printf("Worker finished reduce task %v\n", args.TaskID)
+				log.Printf("Worker finished task %v, ask for another task\n", args.TaskID)
 			}
 		}
-
 	} else {
 		log.Printf("call failed!\n")
 	}
@@ -209,4 +122,95 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 
 	log.Println(err)
 	return false
+}
+func handleMapTask(reply ExampleReply, mapf func(string, string) []KeyValue) {
+	//
+	// read each input file,
+	// pass it to Map,
+	// Save Map output to mr-X.
+	//
+	n := reply.NReduce
+	buckets := make([][]KeyValue, n)
+	for i := range buckets {
+		buckets[i] = make([]KeyValue, 0)
+	}
+	filename := reply.Task
+
+	file, err := os.Open(filename)
+	if err != nil {
+		log.Fatalf("cannot open %v", filename)
+	}
+	content, err := io.ReadAll(file)
+	if err != nil {
+		log.Fatalf("cannot read %v", filename)
+	}
+	file.Close()
+	kva := mapf(filename, string(content))
+	for _, kv := range kva {
+		i := ihash(kv.Key) % n
+		buckets[i] = append(buckets[i], kv)
+	}
+
+	for i, bucket := range buckets {
+		// Save results of MAP task to mr-X-Y
+		filename := fmt.Sprintf("mr-%d-%d", reply.TaskID, i)
+		file, err = os.CreateTemp("/tmp/", filename)
+		if err != nil {
+			log.Fatalf("cannot open %v", filename)
+		}
+		enc := json.NewEncoder(file)
+		for _, kv := range bucket {
+			err := enc.Encode(&kv)
+			if err != nil {
+				log.Fatalf("cannot encode %v to json", kv)
+			}
+		}
+		file.Close()
+		os.Rename(file.Name(), filename)
+	}
+}
+
+func handleReduceTask(reply ExampleReply, reducef func(string, []string) string) {
+
+	kva := []KeyValue{}
+	for i := range reply.NMap {
+		filename := fmt.Sprintf("mr-%d-%d", i, reply.TaskID)
+		file, err := os.Open(filename)
+		if err != nil {
+			log.Fatalf("cannot open %v", filename)
+		}
+		dec := json.NewDecoder(file)
+		for {
+			var kv KeyValue
+			if err := dec.Decode(&kv); err != nil {
+				break
+			}
+			kva = append(kva, kv)
+		}
+	}
+	sort.Sort(ByKey(kva))
+
+	oname := fmt.Sprintf("mr-out-%d", reply.TaskID)
+	ofile, _ := os.CreateTemp("/tmp/", oname)
+
+	//
+	// call Reduce on each distinct key in intermediate[],
+	// and print the result to mr-out-X.
+	//
+	i := 0
+	for i < len(kva) {
+		j := i + 1
+		for j < len(kva) && kva[j].Key == kva[i].Key {
+			j++
+		}
+		values := []string{}
+		for k := i; k < j; k++ {
+			values = append(values, kva[k].Value)
+		}
+		output := reducef(kva[i].Key, values)
+		fmt.Fprintf(ofile, "%v %v\n", kva[i].Key, output)
+		i = j
+	}
+	ofile.Close()
+	os.Rename(ofile.Name(), oname)
 }

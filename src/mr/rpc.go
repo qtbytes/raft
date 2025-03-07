@@ -17,8 +17,9 @@ import (
 //
 
 type ExampleArgs struct {
-	QueryID int
-	TaskID  int
+	QueryID  int
+	TaskID   int
+	TaskType int
 }
 
 type ExampleReply struct {
