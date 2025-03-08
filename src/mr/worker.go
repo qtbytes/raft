@@ -55,12 +55,12 @@ func Worker(mapf func(string, string) []KeyValue,
 		// Map task
 		if reply.TaskType == MAP_TASK {
 			handleMapTask(reply, mapf)
-			log.Printf("Worker received Map task %v", reply.TaskID)
+			log.Println(Green(fmt.Sprintf("Worker received Map task %v", reply.TaskID)))
 		} else if reply.TaskType == REDUCE_TASK {
-			log.Printf("Worker received Reduce task %v", reply.TaskID)
+			log.Println(Green(fmt.Sprintf("Worker received Reduce task %v", reply.TaskID)))
 			handleReduceTask(reply, reducef)
 		} else if reply.TaskType == FINISHED {
-			log.Println("Worker received All jobs done")
+			log.Println(Green("Worker received All jobs done"))
 			return
 		}
 		// Workers will sometimes need to wait, e.g.
@@ -92,9 +92,9 @@ func CallExample(query_id, TaskID, TaskType int) ExampleReply {
 	if ok {
 		if DEBUG {
 			if query_id == ASK_TASK {
-				log.Printf("Worker ask for the first task\n")
+				log.Println(Green("Worker ask for the first task"))
 			} else {
-				log.Printf("Worker finished task %v, ask for another task\n", args.TaskID)
+				log.Println(Green(fmt.Sprintf("Worker finished task %v, ask for another task", args.TaskID)))
 			}
 		}
 	} else {

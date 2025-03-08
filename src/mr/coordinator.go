@@ -1,6 +1,7 @@
 package mr
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -26,23 +27,26 @@ const REDUCE_TASK = 7
 const TIMEOUT = 10
 const DEBUG = true
 
+// Output for coordinator
+func Red(s string) string {
+	return fmt.Sprintf("\033[31m%s\033[0m", s)
+}
+
+// Output for worker
+func Green(s string) string {
+	return fmt.Sprintf("\033[32m%s\033[0m", s)
+}
+
 type Coordinator struct {
-	// lock        sync.Mutex
-	cond        sync.Cond
+	cond        *sync.Cond
 	nMap        int
 	nReduce     int
 	tasks       []string
 	taskStates  []int
 	mapCount    int
 	reduceCount int
-	// The coordinator can't reliably distinguish between crashed workers,
-	// workers that are alive but have stalled for some reason,
-	// and workers that are executing but too slowly to be useful.
-	// The best you can do is have the coordinator wait for some amount of time,
-	// and then give up and re-issue the task to a different worker.
-	// For this lab, have the coordinator wait for ten seconds; after that the
-	// coordinator should assume the worker has died (of course, it might not have).
-	taskExpiry []time.Time
+	taskExpiry  []time.Time
+}
 
 func (c *Coordinator) checkTimeouts() {
 	for {
@@ -83,32 +87,27 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 			if args.TaskType == REDUCE_TASK {
 				c.taskStates[i] = FINISHED
 				c.reduceCount--
-				if c.reduceCount == 0 {
-					c.cond.Broadcast()
-				}
+				// if c.reduceCount == 0 {
+				c.cond.Broadcast()
+				// }
 			} else {
 				c.taskStates[i] = FINISHED
 				c.mapCount--
-				if c.mapCount == 0 {
-					c.cond.Broadcast()
-				}
+				// if c.mapCount == 0 {
+				c.cond.Broadcast()
+				// }
 			}
 		}
 	}
-	// send tasks to worker
-	if c.mapCount > 0 {
+	for c.mapCount > 0 {
 		// Send map task to workers
 		for i := range c.nMap {
-			timeout := c.taskStates[i] == STARTED && time.Since(c.taskExpiry[i]).Seconds() >= TIMEOUT
-			if c.taskStates[i] == UN_STARTED || timeout {
-				if timeout {
-					c.cond.Broadcast()
-				}
+			if c.taskStates[i] == UN_STARTED || c.taskStates[i] == STARTED && time.Since(c.taskExpiry[i]).Seconds() >= TIMEOUT {
 				c.taskStates[i] = STARTED
 				c.taskExpiry[i] = time.Now()
 				if DEBUG {
-					log.Printf("Send Map task %v to worker\n", i)
-					log.Println("Map task states", c.taskStates[:c.nMap])
+					log.Println(Red(fmt.Sprintf("Send Map task %v to worker", i)))
+					log.Println(Red("Map task states"), c.taskStates[:c.nMap])
 				}
 
 				reply.TaskType = MAP_TASK
@@ -118,32 +117,24 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 				return nil
 			}
 		}
-	}
-
-	// Another possibility is for the relevant RPC handler in the coordinator
-	// to have a loop that waits, either with time.Sleep() or sync.Cond.
-	// Go runs the handler for each RPC in its own thread,
-	// so the fact that one handler is waiting needn't prevent the coordinator
-	// from processing other RPCs.
-
-	if c.mapCount > 0 {
+		// Another possibility is for the relevant RPC handler in the coordinator
+		// to have a loop that waits, either with time.Sleep() or sync.Cond.
+		// Go runs the handler for each RPC in its own thread,
+		// so the fact that one handler is waiting needn't prevent the coordinator
+		// from processing other RPCs.
 		c.cond.Wait()
 	}
 
-	if c.mapCount == 0 && c.reduceCount > 0 {
+	for c.reduceCount > 0 {
 		// Send reduce task to workers
 		for i := range c.nReduce {
 			j := i + c.nMap
-			timeout := c.taskStates[j] == STARTED && time.Since(c.taskExpiry[j]).Seconds() >= TIMEOUT
-			if c.taskStates[j] == UN_STARTED || timeout {
-				if timeout {
-					c.cond.Broadcast()
-				}
+			if c.taskStates[j] == UN_STARTED || c.taskStates[j] == STARTED && time.Since(c.taskExpiry[j]).Seconds() >= TIMEOUT {
 				c.taskStates[j] = STARTED
 				c.taskExpiry[j] = time.Now()
 				if DEBUG {
-					log.Printf("Send reduce task %v to worker\n", i)
-					log.Println("Reduce task states", c.taskStates[c.nMap:])
+					log.Println(Red(fmt.Sprintf("Send reduce task %v to worker", i)))
+					log.Println(Red("Reduce task states"), c.taskStates[c.nMap:])
 				}
 
 				reply.TaskType = REDUCE_TASK
@@ -152,11 +143,9 @@ func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 				return nil
 			}
 		}
-	}
-	if c.reduceCount > 0 {
 		c.cond.Wait()
 	}
-	log.Println("All jobs done!")
+	log.Println(Red("All jobs done!"))
 	reply.TaskType = FINISHED
 	return nil
 }
@@ -188,8 +177,9 @@ func (c *Coordinator) Done() bool {
 // nReduce is the number of reduce tasks to use.
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
-	c.cond = *sync.NewCond(&sync.Mutex{})
+	// Init coordinator state
 
+	c.cond = sync.NewCond(&sync.Mutex{})
 	// Map task
 	c.nMap = len(files)
 	c.tasks = files
