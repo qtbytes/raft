@@ -43,6 +43,30 @@ type Coordinator struct {
 	// For this lab, have the coordinator wait for ten seconds; after that the
 	// coordinator should assume the worker has died (of course, it might not have).
 	taskExpiry []time.Time
+
+func (c *Coordinator) checkTimeouts() {
+	for {
+		time.Sleep(time.Second)
+
+		c.cond.L.Lock()
+		for i := range c.taskStates {
+			if c.taskStates[i] == STARTED && time.Since(c.taskExpiry[i]).Seconds() >= TIMEOUT {
+				c.taskStates[i] = UN_STARTED
+				c.cond.Broadcast()
+				if DEBUG {
+					if i >= c.nMap {
+						log.Println(Red(fmt.Sprintf("Reduce task %v timeout, reset to UNSTARTED", i-c.nMap)))
+					} else {
+						log.Println(Red(fmt.Sprintf("Map task %v timeout, reset to UNSTARTED", i)))
+					}
+				}
+			}
+		}
+		c.cond.L.Unlock()
+		if c.Done() {
+			return
+		}
+	}
 }
 
 func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
@@ -177,6 +201,8 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c.taskStates = make([]int, c.nMap+c.nReduce)
 	c.taskExpiry = make([]time.Time, c.nMap+c.nReduce)
 
+	// Check timeouts
+	go c.checkTimeouts()
 	c.server()
 	return &c
 }
