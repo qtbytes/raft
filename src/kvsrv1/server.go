@@ -64,6 +64,7 @@ func (kv *KVServer) Put(args *rpc.PutArgs, reply *rpc.PutReply) {
 			kv.version[args.Key]++
 			reply.Err = rpc.OK
 		} else {
+			log.Printf("Wrong version: server %v, client %v", kv.version[args.Key], args.Version)
 			reply.Err = rpc.ErrVersion
 		}
 	} else {
@@ -72,6 +73,7 @@ func (kv *KVServer) Put(args *rpc.PutArgs, reply *rpc.PutReply) {
 			kv.version[args.Key] = 1
 			reply.Err = rpc.OK
 		} else {
+			log.Printf("Wrong version: server %v, client %v", kv.version[args.Key], args.Version)
 			reply.Err = rpc.ErrNoKey
 		}
 	}
