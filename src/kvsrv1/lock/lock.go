@@ -8,7 +8,7 @@ import (
 	kvtest "6.5840/kvtest1"
 )
 
-const LOCK_FREE = "" // No client has lock
+const LOCK_FREE = "FREE" // No client has lock
 
 type Lock struct {
 	// IKVClerk is a go interface for k/v clerks: the interface hides
@@ -31,14 +31,18 @@ func MakeLock(ck kvtest.IKVClerk, l string) *Lock {
 	// You may add code here
 	lk.id = kvtest.RandValue(8)
 	lk.l = l
-	// lk.ck.Put(lk.l, LOCK_FREE, 0)
+	lk.ck.Put(lk.l, LOCK_FREE, 0)
 	return lk
 }
 
 func (lk *Lock) Acquire() {
 	for {
 		value, version, err := lk.ck.Get(lk.l)
-		if err == rpc.ErrNoKey || value == LOCK_FREE {
+		if err == rpc.OK && (value == LOCK_FREE || value == lk.id) {
+			if value == lk.id {
+				log.Printf("%v already held the lock", lk.id)
+				return
+			}
 			log.Printf("%v try to acquire lock with version %v", lk.id, version)
 			err := lk.ck.Put(lk.l, lk.id, version)
 			if err == rpc.OK {
@@ -52,7 +56,11 @@ func (lk *Lock) Acquire() {
 func (lk *Lock) Release() {
 	for {
 		value, version, err := lk.ck.Get(lk.l)
-		if err == rpc.OK && value == lk.id {
+		if err == rpc.OK && (value == LOCK_FREE || value == lk.id) {
+			if value == LOCK_FREE {
+				log.Printf("%v already released lock", lk.id)
+				return
+			}
 			log.Printf("%v try to release lock with version %v", lk.id, version)
 			err := lk.ck.Put(lk.l, LOCK_FREE, version)
 			if err == rpc.OK {

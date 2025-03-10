@@ -1,6 +1,8 @@
 package kvsrv
 
 import (
+	"time"
+
 	"6.5840/kvsrv1/rpc"
 	kvtest "6.5840/kvtest1"
 	tester "6.5840/tester1"
@@ -9,12 +11,10 @@ import (
 type Clerk struct {
 	clnt   *tester.Clnt
 	server string
-	first  bool // first meet rpc.ErrorVersio
 }
 
 func MakeClerk(clnt *tester.Clnt, server string) kvtest.IKVClerk {
-	ck := &Clerk{clnt: clnt, server: server, first: true}
-	// You may add code here.
+	ck := &Clerk{clnt: clnt, server: server}
 	return ck
 }
 
@@ -36,6 +36,7 @@ func (ck *Clerk) Get(key string) (string, rpc.Tversion, rpc.Err) {
 		if ok {
 			return reply.Value, reply.Version, reply.Err
 		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
@@ -57,9 +58,10 @@ func (ck *Clerk) Get(key string) (string, rpc.Tversion, rpc.Err) {
 // must match the declared types of the RPC handler function's
 // arguments. Additionally, reply must be passed as a pointer.
 func (ck *Clerk) Put(key, value string, version rpc.Tversion) rpc.Err {
+	args := rpc.PutArgs{Key: key, Value: value, Version: version}
+	reply := rpc.PutReply{}
+	first := true
 	for {
-		args := rpc.PutArgs{Key: key, Value: value, Version: version}
-		reply := rpc.GetReply{}
 		ok := ck.clnt.Call(ck.server, "KVServer.Put", &args, &reply)
 		if ok {
 			switch reply.Err {
@@ -68,14 +70,13 @@ func (ck *Clerk) Put(key, value string, version rpc.Tversion) rpc.Err {
 			case rpc.ErrNoKey:
 				return rpc.ErrNoKey
 			case rpc.ErrVersion:
-				if ck.first {
-					ck.first = false
+				if first {
 					return rpc.ErrVersion
 				}
 				return rpc.ErrMaybe
-			default:
-				return "UNREACHABLE"
 			}
 		}
+		time.Sleep(100 * time.Millisecond)
+		first = false
 	}
 }
