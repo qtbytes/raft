@@ -11,7 +11,7 @@ import (
 
 	"6.5840/labrpc"
 	"6.5840/raftapi"
-	"6.5840/tester1"
+	tester "6.5840/tester1"
 )
 
 type Test struct {
@@ -95,7 +95,7 @@ func (ts *Test) checkOneLeader() int {
 			return leaders[lastTermWithLeader][0]
 		}
 	}
-	details := fmt.Sprintf("unable to find a leader")
+	details := "unable to find a leader"
 	tester.AnnotateCheckerFailure("no leader", details)
 	ts.Fatalf("expected one leader, got none")
 	return -1
@@ -111,7 +111,7 @@ func (ts *Test) checkTerms() int {
 				term = xterm
 			} else if term != xterm {
 				details := fmt.Sprintf("node ids -> terms = { %v -> %v; %v -> %v }",
-					i - 1, term, i, xterm)
+					i-1, term, i, xterm)
 				tester.AnnotateCheckerFailure("term disagreed", details)
 				ts.Fatalf("servers disagree on term")
 			}
@@ -230,7 +230,7 @@ func (ts *Test) one(cmd any, expectedServers int, retry bool) int {
 	tester.AnnotateCheckerBegin(textb)
 	t0 := time.Now()
 	starts := 0
-	for time.Since(t0).Seconds() < 10 && ts.checkFinished() == false {
+	for time.Since(t0).Seconds() < 10 && !ts.checkFinished() {
 		// try all the servers, maybe one is the leader.
 		index := -1
 		for range ts.srvs {
@@ -266,7 +266,7 @@ func (ts *Test) one(cmd any, expectedServers int, retry bool) int {
 				}
 				time.Sleep(20 * time.Millisecond)
 			}
-			if retry == false {
+			if !retry {
 				desp := fmt.Sprintf("agreement of %.8s failed", textcmd)
 				tester.AnnotateCheckerFailure(desp, "failed after submitting command")
 				ts.Fatalf("one(%v) failed to reach agreement", cmd)
@@ -275,7 +275,7 @@ func (ts *Test) one(cmd any, expectedServers int, retry bool) int {
 			time.Sleep(50 * time.Millisecond)
 		}
 	}
-	if ts.checkFinished() == false {
+	if !ts.checkFinished() {
 		desp := fmt.Sprintf("agreement of %.8s failed", textcmd)
 		tester.AnnotateCheckerFailure(desp, "failed after 10-second timeout")
 		ts.Fatalf("one(%v) failed to reach agreement", cmd)

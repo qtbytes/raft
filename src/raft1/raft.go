@@ -31,6 +31,9 @@ const (
 )
 
 type LogEntry struct {
+	Term  int
+	Index int
+	Entry raftapi.ApplyMsg
 }
 
 // A Go object implementing a single Raft peer.
@@ -46,12 +49,13 @@ type Raft struct {
 	electionTimeout time.Duration
 	count           int // vote count when election
 
+	applyCh chan raftapi.ApplyMsg // store committed entry
+
 	// Your data here (3A, 3B, 3C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
 
-	// ---------------------
-	// Persistent state on all servers:
+	// --------------------- Persistent state on all servers:
 	// (Updated on stable storage before responding to RPCs)
 
 	// latest term server has seen (initialized to 0 on first boot, increases monotonically)
@@ -60,17 +64,24 @@ type Raft struct {
 	votedFor int
 	// log entries; each entry contains command for state machine, and term when entry
 	// was received by leader (first index is 1)
-	// log []LogEntry
+	log []LogEntry
 
-	// ---------------------
-	// Volatile state on leaders: (Reinitialized after election)
+	// --------------------- Volatile state on all servers:
 
+	// index of highest log entry known to be committed
+	// (initialized to 0, increases monotonically)
+	commitIndex int
+	// index of highest log entry applied to state machine
+	// (initialized to 0, increases monotonically)
+	lastApplied int
+
+	// --------------------- Volatile state on leaders: (Reinitialized after election)
 	// for each server, index of the next log entry
 	// to send to that server (initialized to leader last log index + 1)
-	// nextIndex []int
+	nextIndex []int
 	// for each server, index of highest log entry known to be replicated on server
 	// (initialized to 0, increases monotonically)
-	// matchIndex []int
+	matchIndex []int
 }
 
 func (rf *Raft) resetElectionTimer() {
@@ -150,8 +161,12 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 }
 
 type RequestAppendArgs struct {
-	Term     int // leader’s term
-	LeaderID int // so follower can redirect clients
+	Term         int        // leader’s term
+	LeaderID     int        // so follower can redirect clients
+	PrevLogIndex int        // index of log entry immediately preceding new ones
+	PrevLogTerm  int        // term of prevLogIndex entry
+	Entries      []LogEntry // log entries to store (empty for heartbeat; may send more than one for efficiency)
+	LeaderCommit int        // leader’s commitIndex
 
 }
 type RequestAppendReply struct {
@@ -165,28 +180,64 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 	defer rf.mu.Unlock()
 	// 1. Reply false if term < currentTerm (§5.1)
 	if args.Term < rf.currentTerm {
-		DPrintf("%v %v has term: %v, reject heartbeat from leader %v with term %v", rf.state, rf.me, rf.currentTerm, args.LeaderID, args.Term)
+		DPrintf("%v %v has term: %v, reject AppendEntries from leader %v with term %v", rf.state, rf.me, rf.currentTerm, args.LeaderID, args.Term)
 		reply.Success = false
 		reply.Term = rf.currentTerm
 		return
 	}
-	DPrintf("%v %v has term: %v, received heartbeat from leader %v with term %v", rf.state, rf.me, rf.currentTerm, args.LeaderID, args.Term)
+	DPrintf("%v %v has term: %v, received AppendEntries from leader %v with term %v", rf.state, rf.me, rf.currentTerm, args.LeaderID, args.Term)
 	rf.resetElectionTimer()
 	rf.currentTerm = args.Term
 	rf.votedFor = -1
 	rf.state = FOLLOWER
 	reply.Success = true
 	reply.Term = rf.currentTerm
-	// TODO: 2. Reply false if log doesn’t contain an entry at prevLogIndex
+	// heartbeat
+	if len(args.Entries) == 0 {
+		return
+	}
+	// Rules for Servers:
+	// If commitIndex > lastApplied: increment lastApplied, apply
+	// log[lastApplied] to state machine (§5.3)
+	if args.LeaderCommit > rf.lastApplied {
+		rf.lastApplied++
+		rf.applyCh <- rf.log[rf.lastApplied].Entry
+	}
+
+	// 2. Reply false if log doesn’t contain an entry at prevLogIndex
 	// whose term matches prevLogTerm (§5.3)
+	if len(rf.log) < args.PrevLogIndex || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
+		reply.Success = false
+		reply.Term = rf.currentTerm
+		return
+	}
 
-	// TODO: 3. If an existing entry conflicts with a new one (same index
+	// 3. If an existing entry conflicts with a new one (same index
 	// but different terms), delete the existing entry and all that follow it (§5.3)
+	p := len(rf.log)
 
-	// TODO: 4. Append any new entries not already in the log
+	for _, entry := range args.Entries {
+		i := entry.Index
+		if rf.log[i].Term != entry.Term {
+			p = min(i, p)
+		}
+	}
 
-	// TODO: 5. If leaderCommit > commitIndex,
+	rf.log = rf.log[:p]
+
+	// 4. Append any new entries not already in the log
+	for _, entry := range args.Entries {
+		i := entry.Index
+		if i >= len(rf.log) {
+			rf.log = append(rf.log, entry)
+		}
+	}
+
+	// 5. If leaderCommit > commitIndex,
 	// set commitIndex = min(leaderCommit, index of last new entry)
+	if args.LeaderCommit > rf.commitIndex {
+		rf.commitIndex = min(args.LeaderCommit, len(rf.log))
+	}
 
 }
 func (rf *Raft) sendAppendEntries(server int, args *RequestAppendArgs, reply *RequestAppendReply) {
@@ -397,12 +448,37 @@ func (rf *Raft) sendHeartBeat() {
 // term. the third return value is true if this server believes it is
 // the leader.
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
-	index := -1
-	term := -1
-	isLeader := true
-
 	// Your code here (3B).
 
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	index := rf.commitIndex
+	term := rf.currentTerm
+	isLeader := rf.state == LEADER
+	if !isLeader {
+		return index, term, isLeader
+	}
+	entries := make([]LogEntry, 0)
+	entries = append(entries, LogEntry{
+		Term:  rf.currentTerm,
+		Index: rf.commitIndex,
+		Entry: raftapi.ApplyMsg{Command: command},
+	})
+
+	for server := range rf.peers {
+		go func(server int) {
+			args := RequestAppendArgs{
+				Term:     rf.currentTerm,
+				LeaderID: rf.me,
+				// PrevLogIndex:         // index of log entry immediately preceding new ones
+				// PrevLogTerm  int        // term of prevLogIndex entry
+				Entries:      entries,
+				LeaderCommit: rf.commitIndex,
+			}
+			reply := RequestAppendReply{}
+			rf.sendAppendEntries(server, &args, &reply)
+		}(server)
+	}
 	return index, term, isLeader
 }
 
@@ -471,6 +547,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
+	rf.applyCh = make(chan raftapi.ApplyMsg)
 
 	// Your initialization code here (3A, 3B, 3C).
 	rf.state = FOLLOWER
@@ -478,10 +555,14 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	rf.currentTerm = 0
 	rf.votedFor = -1
-	// rf.log = make([]LogEntry, 0)
+	rf.log = make([]LogEntry, 0)
 
-	// rf.nextIndex = make([]int, 0)
-	// rf.matchIndex = make([]int, 0)
+	rf.commitIndex = 0
+	rf.lastApplied = 0
+
+	// TODO: Fix it, (Reinitialized after election)
+	rf.nextIndex = make([]int, 0)
+	rf.matchIndex = make([]int, 0)
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
