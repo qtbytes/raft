@@ -163,31 +163,41 @@ type RequestAppendReply struct {
 func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-
-	if args.Term > rf.currentTerm {
-		DPrintf("%v %v has term: %v, received heartbeat from leader %v with term %v", rf.state, rf.me, rf.currentTerm, args.LeaderID, args.Term)
-		rf.lastTime = time.Now()
-		rf.currentTerm = args.Term
-		rf.votedFor = -1
-		rf.state = FOLLOWER
-		reply.Success = true
-	} else if args.Term == rf.currentTerm {
-		DPrintf("%v %v has term: %v, received heartbeat from leader %v with term %v", rf.state, rf.me, rf.currentTerm, args.LeaderID, args.Term)
-		rf.lastTime = time.Now()
-		if rf.state == CANDIDATE {
-			rf.state = FOLLOWER
-		}
-		reply.Success = true
-	} else {
-		// TODO
-		// Reply false if log doesn’t contain an entry at prevLogIndex
-		// whose term matches prevLogTerm (§5.3)
+	// 1. Reply false if term < currentTerm (§5.1)
+	if args.Term < rf.currentTerm {
+		DPrintf("%v %v has term: %v, reject heartbeat from leader %v with term %v", rf.state, rf.me, rf.currentTerm, args.LeaderID, args.Term)
 		reply.Success = false
+		reply.Term = rf.currentTerm
+		return
 	}
+	DPrintf("%v %v has term: %v, received heartbeat from leader %v with term %v", rf.state, rf.me, rf.currentTerm, args.LeaderID, args.Term)
+	rf.resetElectionTimer()
+	rf.currentTerm = args.Term
+	rf.votedFor = -1
+	rf.state = FOLLOWER
+	reply.Success = true
 	reply.Term = rf.currentTerm
+	// TODO: 2. Reply false if log doesn’t contain an entry at prevLogIndex
+	// whose term matches prevLogTerm (§5.3)
+
+	// TODO: 3. If an existing entry conflicts with a new one (same index
+	// but different terms), delete the existing entry and all that follow it (§5.3)
+
+	// TODO: 4. Append any new entries not already in the log
+
+	// TODO: 5. If leaderCommit > commitIndex,
+	// set commitIndex = min(leaderCommit, index of last new entry)
+
 }
 func (rf *Raft) sendAppendEntries(server int, args *RequestAppendArgs, reply *RequestAppendReply) {
-	for {
+	for !rf.killed() {
+		rf.mu.Lock()
+		if rf.state != LEADER {
+			rf.mu.Unlock()
+			return
+		}
+		DPrintf("%v %v send heartbeat to %v", rf.state, rf.me, server)
+		rf.mu.Unlock()
 		ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
 		if !ok {
 			// TODO: Maybe need a better time
@@ -196,8 +206,14 @@ func (rf *Raft) sendAppendEntries(server int, args *RequestAppendArgs, reply *Re
 		}
 		rf.mu.Lock()
 		defer rf.mu.Unlock()
+		//  old RPC replies
+		if rf.currentTerm != args.Term {
+			DPrintf("%v %v find %v != %v, maybe old rpc replies", rf.state, rf.me, rf.currentTerm, args.Term)
+			return
+		}
 		if reply.Term > rf.currentTerm {
 			rf.currentTerm = reply.Term
+			// FIXME:
 			rf.state = FOLLOWER
 			rf.votedFor = -1
 		} else if !reply.Success {
@@ -238,8 +254,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		return
 	}
 
-	// Update heartbeat
-	rf.lastTime = time.Now()
+	rf.resetElectionTimer()
 
 	if args.Term > rf.currentTerm {
 		rf.currentTerm = args.Term
@@ -247,6 +262,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.state = FOLLOWER
 	}
 	if rf.votedFor == -1 || rf.votedFor == args.CandidateID {
+		// TODO: check candidate’s log is at least as up-to-date as receiver’s logl
 		DPrintf("%v %v vote for Candidate %v", rf.state, rf.me, args.CandidateID)
 		rf.state = FOLLOWER
 		rf.votedFor = args.CandidateID
@@ -286,7 +302,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // that the caller passes the address of the reply struct with &, not
 // the struct itself.
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) {
-	for {
+	for !rf.killed() {
 		ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
 		if !ok {
 			time.Sleep(10 * time.Millisecond)
@@ -359,8 +375,6 @@ func (rf *Raft) sendHeartBeat() {
 					rf.mu.Lock()
 					args := RequestAppendArgs{LeaderID: rf.me, Term: rf.currentTerm}
 					reply := RequestAppendReply{}
-					DPrintf("%v %v send heartbeat to %v", rf.state, rf.me, server)
-					// Maybe need catch return value from rpc
 					rf.mu.Unlock()
 					rf.sendAppendEntries(server, &args, &reply)
 				}(server)
