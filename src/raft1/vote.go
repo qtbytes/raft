@@ -101,11 +101,11 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 		}
 
 		if reply.VoteGranted {
-			rf.count++
+			rf.voteCount++
 			DPrintf("%v %v got vote from %v", rf.state, rf.me, server)
 			// (a) it wins the election
-			if rf.count > len(rf.peers)/2 && rf.state == CANDIDATE {
-				DPrintf("%v %v got %v votes, win election with term %v", rf.state, rf.me, rf.count, rf.currentTerm)
+			if rf.voteCount > len(rf.peers)/2 && rf.state == CANDIDATE {
+				DPrintf("%v %v got %v votes, win election with term %v", rf.state, rf.me, rf.voteCount, rf.currentTerm)
 				rf.state = LEADER
 				rf.initIndex() // Init nextIndex and matchIndex
 				go rf.sendHeartBeat()
@@ -122,7 +122,7 @@ func (rf *Raft) startElection() {
 	rf.currentTerm++
 	rf.votedFor = rf.me
 	rf.resetElectionTimer()
-	rf.count = 1
+	rf.voteCount = 1
 
 	state, me, term := rf.state, rf.me, rf.currentTerm
 	rf.mu.Unlock()

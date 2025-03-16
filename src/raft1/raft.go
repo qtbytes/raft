@@ -40,7 +40,8 @@ type Raft struct {
 	state           string    // leader, follower, candidate
 	lastTime        time.Time // the last time received heartbeat
 	electionTimeout time.Duration
-	count           int // vote count when election
+	voteCount       int // vote count when election
+	successCount    int
 
 	applyCh chan raftapi.ApplyMsg // store committed entry
 
@@ -163,11 +164,12 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 	// Your code here (3B).
 
 	rf.mu.Lock()
-	defer rf.mu.Unlock()
-	index := rf.commitIndex
+
+	index := rf.commitIndex - 1
 	term := rf.currentTerm
 	isLeader := rf.state == LEADER
 	if !isLeader {
+		rf.mu.Unlock()
 		return index, term, isLeader
 	}
 	entries := make([]LogEntry, 0)
@@ -177,29 +179,50 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 		Index: rf.commitIndex,
 		Entry: raftapi.ApplyMsg{Command: command},
 	})
+	// Apply to state
 	rf.log = append(rf.log, entries...)
+	rf.successCount = 1
+	rf.mu.Unlock()
 
 	for server := range rf.peers {
+		rf.mu.Lock()
+		if server == rf.me {
+			continue
+		}
 		go func(server int) {
 			entry := entries[0]
 			if len(rf.log) >= rf.nextIndex[server] {
 				entry = rf.log[rf.nextIndex[server]]
 			}
+			PrevLogIndex := rf.nextIndex[server]
+			// TODO: may have problem
+			PrevLogTerm := rf.log[PrevLogIndex].Term
 			args := RequestAppendArgs{
 				Term:     rf.currentTerm,
 				LeaderID: rf.me,
 				// index of log entry immediately preceding new ones
-				// PrevLogIndex: len(rf.log),
+				PrevLogIndex: PrevLogIndex,
 				// term of prevLogIndex entry
-				// PrevLogTerm:  rf.log[rf.lastApplied].Term,
+				PrevLogTerm:  PrevLogTerm,
 				Entries:      []LogEntry{entry},
 				LeaderCommit: rf.commitIndex,
 			}
 			reply := RequestAppendReply{}
 			rf.sendAppendEntries(server, &args, &reply)
 		}(server)
+		rf.mu.Unlock()
 	}
-	return index, term, isLeader
+	// TODO: need wait
+	// for {
+	// 	time.Sleep(BROADCAST_TIME)
+	// 	rf.mu.Lock()
+	// 	if rf.commitIndex > 1 {
+	// 		break
+	// 	}
+	// 	rf.mu.Unlock()
+	// }
+	DPrintf("%v %v %v", rf.commitIndex, rf.currentTerm, rf.state == LEADER)
+	return rf.commitIndex, rf.currentTerm, rf.state == LEADER
 }
 
 // the tester doesn't halt goroutines created by Raft after each test,
