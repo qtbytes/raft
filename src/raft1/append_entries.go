@@ -30,14 +30,20 @@ type RequestAppendReply struct {
 func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	action := "heartbeat"
+	if len(args.Entries) > 0 {
+		action = "AppendEntries"
+	}
 	// 1. Reply false if term < currentTerm (§5.1)
 	if args.Term < rf.currentTerm {
-		DPrintf("%v %v has term: %v, reject AppendEntries from %v with term %v", rf.state, rf.me, rf.currentTerm, args.LeaderID, args.Term)
+		DPrintf("%v %v has term: %v, reject %v from %v with term %v", rf.state, rf.me,
+			rf.currentTerm, action, args.LeaderID, args.Term)
 		reply.Success = false
 		reply.Term = rf.currentTerm
 		return
 	}
-	DPrintf("%v %v has term: %v, received AppendEntries from %v with term %v", rf.state, rf.me, rf.currentTerm, args.LeaderID, args.Term)
+	DPrintf("%v %v has term: %v, received %v from %v with term %v", rf.state, rf.me,
+		rf.currentTerm, action, args.LeaderID, args.Term)
 	rf.resetElectionTimer()
 	rf.currentTerm = args.Term
 	rf.votedFor = -1
@@ -45,20 +51,25 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 	reply.Success = true
 	reply.Term = rf.currentTerm
 
-	// heartbeat
-	if len(args.Entries) == 0 {
-		return
-	}
 	// Rules for Servers:
 	// If commitIndex > lastApplied: increment lastApplied, apply
 	// log[lastApplied] to state machine (§5.3)
 	for args.LeaderCommit > rf.lastApplied {
+		DPrintf("%v %v increase lastApplied %v to LeaderCommit %v", rf.state, rf.me, rf.lastApplied, args.LeaderCommit)
 		rf.applyCh <- rf.log[rf.lastApplied].Entry
 		rf.lastApplied++
 	}
+	// heartbeat
+	if len(args.Entries) == 0 {
+		return
+	}
+	DPrintf("%v %v received Entries %v", rf.state, rf.me, args.Entries)
 	// 2. Reply false if log doesn’t contain an entry at prevLogIndex
 	// whose term matches prevLogTerm (§5.3)
-	if len(rf.log) < args.PrevLogIndex || (len(rf.log) > 0 && rf.log[args.PrevLogIndex].Term != args.PrevLogTerm) {
+	if len(rf.log) > 0 && len(rf.log) >= args.PrevLogIndex &&
+		rf.log[args.PrevLogIndex-1].Term != args.PrevLogTerm {
+		DPrintf("%v %v reply false, entry %v don't match (%v, %v) ", rf.state, rf.me,
+			rf.log[args.PrevLogIndex], args.PrevLogIndex, args.PrevLogTerm)
 		reply.Success = false
 		reply.Term = rf.currentTerm
 		return
@@ -81,6 +92,7 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 	for _, entry := range args.Entries {
 		i := entry.Index
 		if i >= len(rf.log) {
+			DPrintf("%v %v append new entries %v to log", rf.state, rf.me, entry)
 			rf.log = append(rf.log, entry)
 		}
 	}
@@ -118,7 +130,30 @@ func (rf *Raft) sendAppendEntries(server int, args *RequestAppendArgs, reply *Re
 			rf.state = FOLLOWER
 			rf.votedFor = -1
 			return
-		} else if !reply.Success {
+		}
+		// Heartbeat
+		if len(args.Entries) == 0 {
+			return
+		}
+		if reply.Success {
+			rf.successCount++
+			rf.nextIndex[server]++
+			DPrintf("%v %v receive success from %v", rf.state, rf.me, server)
+			if rf.successCount > len(rf.peers)/2 {
+				// Only apply once
+				if rf.lastApplied < len(rf.log) {
+					// Apply on state machine
+					DPrintf("%v %v have %v success, apply log %v to state machine", rf.state, rf.me,
+						rf.successCount, rf.log[rf.lastApplied])
+					rf.applyCh <- rf.log[rf.lastApplied].Entry
+					rf.lastApplied++
+					rf.commitIndex++
+				}
+				if rf.lastApplied < rf.matchIndex[server] {
+					rf.matchIndex[server]++
+				}
+			}
+		} else {
 			rf.nextIndex[server]--
 			// time.Sleep(10 * time.Millisecond)
 			// continue
@@ -140,10 +175,10 @@ func (rf *Raft) sendHeartBeat() {
 				go func(server int) {
 					rf.mu.Lock()
 					args := RequestAppendArgs{
-						LeaderID: rf.me,
-						Term:     rf.currentTerm,
-						Entries:  []LogEntry{},
-						// LeaderCommit: rf.commitIndex,
+						LeaderID:     rf.me,
+						Term:         rf.currentTerm,
+						Entries:      []LogEntry{},
+						LeaderCommit: rf.commitIndex,
 					}
 					reply := RequestAppendReply{}
 					rf.mu.Unlock()
