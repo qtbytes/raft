@@ -237,7 +237,9 @@ func (ts *Test) one(cmd any, expectedServers int, retry bool) int {
 			starts = (starts + 1) % len(ts.srvs)
 			var rf raftapi.Raft
 			if ts.g.IsConnected(starts) {
+				ts.srvs[starts].mu.Lock()
 				rf = ts.srvs[starts].raft
+				ts.srvs[starts].mu.Unlock()
 			}
 			if rf != nil {
 				//log.Printf("peer %d Start %v", starts, cmd)

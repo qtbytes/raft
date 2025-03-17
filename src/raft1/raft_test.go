@@ -878,10 +878,11 @@ func TestPersist33C(t *testing.T) {
 	ts.g.ShutdownServer((leader + 0) % servers)
 	ts.g.ShutdownServer((leader + 1) % servers)
 	tester.AnnotateShutdown([]int{(leader + 0) % servers, (leader + 1) % servers})
-	ts.restart((leader + 2) % servers)
-	ts.restart((leader + 0) % servers)
-	tester.AnnotateRestart([]int{(leader + 2) % servers, (leader + 0) % servers})
+	ts.g.ConnectOne((leader + 2) % servers)
 	tester.AnnotateConnection(ts.g.GetConnected())
+	ts.restart((leader + 0) % servers)
+	tester.AnnotateRestart([]int{(leader + 0) % servers})
+
 
 	ts.one(103, 2, true)
 
@@ -913,9 +914,10 @@ func TestFigure83C(t *testing.T) {
 	for iters := 0; iters < 1000; iters++ {
 		leader := -1
 		for i := 0; i < servers; i++ {
-			if ts.srvs[i].Raft() != nil {
+			rf := ts.srvs[i].Raft()
+			if rf != nil {
 				cmd := rand.Int()
-				_, _, ok := ts.srvs[i].Raft().Start(cmd)
+				_, _, ok := rf.Start(cmd)
 				if ok {
 					text := fmt.Sprintf("submitted command %v to server %v", cmd, i)
 					tester.AnnotateInfo(text, text)
