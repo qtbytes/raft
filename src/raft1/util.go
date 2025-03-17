@@ -15,10 +15,13 @@ func DPrintf(format string, a ...interface{}) {
 	}
 }
 func (rf *Raft) resetElectionTimer() {
-	timeout := ELECTION_TIMEOUT_MIN + time.Duration(rand.Int63()%
-		int64(ELECTION_TIMEOUT_MAX-ELECTION_TIMEOUT_MIN))
-	rf.electionTimeout = timeout
 	rf.lastTime = time.Now()
+	// DPrintf("%v %v reset election timer to %v", rf.state, rf.me, rf.lastTime)
+	if rf.electionTimeout == 0 {
+		timeout := ELECTION_TIMEOUT_MIN + time.Duration(rand.Int63()%
+			int64(ELECTION_TIMEOUT_MAX-ELECTION_TIMEOUT_MIN))
+		rf.electionTimeout = timeout
+	}
 }
 func (rf *Raft) ticker() {
 	for !rf.killed() {
