@@ -165,12 +165,12 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 
 	rf.mu.Lock()
 
-	index := rf.commitIndex - 1
+	index := rf.commitIndex
 	term := rf.currentTerm
 	isLeader := rf.state == LEADER
 	if !isLeader {
 		rf.mu.Unlock()
-		return index, term, isLeader
+		return index - 1, term, isLeader
 	}
 	entries := make([]LogEntry, 0)
 	// TODO: Handle multi entries
@@ -179,23 +179,22 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 		Index: rf.commitIndex,
 		Entry: raftapi.ApplyMsg{Command: command},
 	})
-	// Apply to state
 	rf.log = append(rf.log, entries...)
 	rf.successCount = 1
 	rf.mu.Unlock()
 
 	for server := range rf.peers {
-		rf.mu.Lock()
 		if server == rf.me {
 			continue
 		}
+		rf.mu.Lock()
 		go func(server int) {
 			entry := entries[0]
 			if len(rf.log) >= rf.nextIndex[server] {
 				entry = rf.log[rf.nextIndex[server]]
 			}
-			PrevLogIndex := rf.nextIndex[server]
 			// TODO: may have problem
+			PrevLogIndex := rf.nextIndex[server]
 			PrevLogTerm := rf.log[PrevLogIndex].Term
 			args := RequestAppendArgs{
 				Term:     rf.currentTerm,
@@ -212,17 +211,17 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 		}(server)
 		rf.mu.Unlock()
 	}
-	// TODO: need wait
-	// for {
-	// 	time.Sleep(BROADCAST_TIME)
-	// 	rf.mu.Lock()
-	// 	if rf.commitIndex > 1 {
-	// 		break
-	// 	}
-	// 	rf.mu.Unlock()
-	// }
-	DPrintf("%v %v %v", rf.commitIndex, rf.currentTerm, rf.state == LEADER)
-	return rf.commitIndex, rf.currentTerm, rf.state == LEADER
+
+	for {
+		time.Sleep(BROADCAST_TIME)
+		rf.mu.Lock()
+		DPrintf("%v %v %v", rf.commitIndex, rf.currentTerm, rf.state == LEADER)
+		if rf.commitIndex > 0 {
+			break
+		}
+		rf.mu.Unlock()
+	}
+	return rf.commitIndex - 1, rf.currentTerm, rf.state == LEADER
 }
 
 // the tester doesn't halt goroutines created by Raft after each test,
