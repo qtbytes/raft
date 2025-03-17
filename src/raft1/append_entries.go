@@ -29,7 +29,7 @@ type RequestAppendReply struct {
 
 func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply) {
 	rf.mu.Lock()
-	defer rf.mu.Unlock()
+
 	action := "heartbeat"
 	if len(args.Entries) > 0 {
 		action = "AppendEntries"
@@ -40,6 +40,7 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 			rf.currentTerm, action, args.LeaderID, args.Term)
 		reply.Success = false
 		reply.Term = rf.currentTerm
+		rf.mu.Unlock()
 		return
 	}
 	DPrintf("%v %v has term: %v, received %v from %v with term %v", rf.state, rf.me,
@@ -54,13 +55,21 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 	// Rules for Servers:
 	// If commitIndex > lastApplied: increment lastApplied, apply
 	// log[lastApplied] to state machine (§5.3)
+	msgs := make([]raftapi.ApplyMsg, 0)
 	for args.LeaderCommit > rf.lastApplied {
 		DPrintf("%v %v increase lastApplied %v to LeaderCommit %v", rf.state, rf.me, rf.lastApplied, args.LeaderCommit)
-		rf.applyCh <- rf.log[rf.lastApplied].Entry
+		msgs = append(msgs, rf.log[rf.lastApplied].Entry)
 		rf.lastApplied++
 	}
+	rf.mu.Unlock()
+	for _, msg := range msgs {
+		rf.applyCh <- msg
+	}
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
 	// heartbeat
-	if len(args.Entries) == 0 {
+	if action == "heartbeat" {
 		return
 	}
 	DPrintf("%v %v received Entries %v", rf.state, rf.me, args.Entries)
@@ -111,7 +120,6 @@ func (rf *Raft) sendAppendEntries(server int, args *RequestAppendArgs, reply *Re
 			rf.mu.Unlock()
 			return
 		}
-		DPrintf("%v %v send heartbeat to %v", rf.state, rf.me, server)
 		rf.mu.Unlock()
 		ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
 		if !ok {
@@ -119,22 +127,26 @@ func (rf *Raft) sendAppendEntries(server int, args *RequestAppendArgs, reply *Re
 			continue
 		}
 		rf.mu.Lock()
-		defer rf.mu.Unlock()
+
 		//  old RPC replies
 		if rf.currentTerm != args.Term {
 			DPrintf("%v %v find %v != %v, maybe old rpc replies", rf.state, rf.me, rf.currentTerm, args.Term)
+			rf.mu.Unlock()
 			return
 		}
 		if reply.Term > rf.currentTerm {
 			rf.currentTerm = reply.Term
 			rf.state = FOLLOWER
 			rf.votedFor = -1
+			rf.mu.Unlock()
 			return
 		}
 		// Heartbeat
 		if len(args.Entries) == 0 {
+			rf.mu.Unlock()
 			return
 		}
+		msgs := make([]raftapi.ApplyMsg, 0)
 		if reply.Success {
 			rf.successCount++
 			rf.nextIndex[server]++
@@ -143,13 +155,13 @@ func (rf *Raft) sendAppendEntries(server int, args *RequestAppendArgs, reply *Re
 				// Only apply once
 				if rf.lastApplied < len(rf.log) {
 					// Apply on state machine
+					msgs = append(msgs, rf.log[rf.lastApplied].Entry)
 					DPrintf("%v %v have %v success, apply log %v to state machine", rf.state, rf.me,
 						rf.successCount, rf.log[rf.lastApplied])
-					rf.applyCh <- rf.log[rf.lastApplied].Entry
 					rf.lastApplied++
 					rf.commitIndex++
 				}
-				if rf.lastApplied < rf.matchIndex[server] {
+				if rf.lastApplied > rf.matchIndex[server] {
 					rf.matchIndex[server]++
 				}
 			}
@@ -158,6 +170,10 @@ func (rf *Raft) sendAppendEntries(server int, args *RequestAppendArgs, reply *Re
 			// time.Sleep(10 * time.Millisecond)
 			// continue
 		}
+		rf.mu.Unlock()
+		for _, msg := range msgs {
+			rf.applyCh <- msg
+		}
 		return
 	}
 }
@@ -165,23 +181,31 @@ func (rf *Raft) sendHeartBeat() {
 	for !rf.killed() {
 		rf.mu.Lock()
 		if rf.state != LEADER {
+			DPrintf("%v %v is not Leader anymore, stop send heartbeat", rf.state, rf.me)
 			rf.mu.Unlock()
 			return
-		} else {
-			rf.mu.Unlock()
 		}
+		prevLogIndex := len(rf.log) - 1
+		prevLogTerm := 0
+		if prevLogIndex >= 0 {
+			prevLogTerm = rf.log[prevLogIndex].Term
+		}
+
+		args := RequestAppendArgs{
+			Term:         rf.currentTerm,
+			LeaderID:     rf.me,
+			PrevLogIndex: prevLogIndex,
+			PrevLogTerm:  prevLogTerm,
+			Entries:      []LogEntry{},
+			LeaderCommit: rf.commitIndex,
+		}
+		rf.mu.Unlock()
+
 		for server := range rf.peers {
 			if server != rf.me {
 				go func(server int) {
-					rf.mu.Lock()
-					args := RequestAppendArgs{
-						LeaderID:     rf.me,
-						Term:         rf.currentTerm,
-						Entries:      []LogEntry{},
-						LeaderCommit: rf.commitIndex,
-					}
 					reply := RequestAppendReply{}
-					rf.mu.Unlock()
+					DPrintf("%v %v send heartbeat to %v", rf.state, rf.me, server)
 					rf.sendAppendEntries(server, &args, &reply)
 				}(server)
 			}
