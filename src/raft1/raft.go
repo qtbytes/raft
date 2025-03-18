@@ -41,7 +41,6 @@ type Raft struct {
 	lastTime        time.Time // the last time received heartbeat
 	electionTimeout time.Duration
 	voteCount       int // vote count when election
-	successCount    int
 
 	applyCh chan raftapi.ApplyMsg // store committed entry
 
@@ -170,17 +169,17 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 	isLeader := rf.state == LEADER
 	if !isLeader {
 		rf.mu.Unlock()
-		return index - 1, term, isLeader
+		return index, term, isLeader
 	}
 	entries := make([]LogEntry, 0)
 	// TODO: Handle multi entries
 	entries = append(entries, LogEntry{
 		Term:  rf.currentTerm,
-		Index: rf.commitIndex,
-		Entry: raftapi.ApplyMsg{Command: command},
+		Index: len(rf.log),
+		Entry: raftapi.ApplyMsg{CommandValid: true, Command: command, CommandIndex: len(rf.log)},
 	})
+	DPrintf("%v %v receive log entry %v from clients", rf.state, rf.me, entries[0])
 	rf.log = append(rf.log, entries...)
-	rf.successCount = 1
 	rf.mu.Unlock()
 
 	for server := range rf.peers {
@@ -193,15 +192,15 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 			if len(rf.log) >= rf.nextIndex[server] {
 				entry = rf.log[rf.nextIndex[server]]
 			}
-			// TODO: may have problem
-			PrevLogIndex := rf.nextIndex[server]
-			PrevLogTerm := rf.log[PrevLogIndex].Term
+			PrevLogIndex := rf.nextIndex[server] - 1
+			PrevLogTerm := 0
+			if PrevLogIndex >= 0 {
+				PrevLogTerm = rf.log[PrevLogIndex].Term
+			}
 			args := RequestAppendArgs{
-				Term:     rf.currentTerm,
-				LeaderID: rf.me,
-				// index of log entry immediately preceding new ones
+				Term:         rf.currentTerm,
+				LeaderID:     rf.me,
 				PrevLogIndex: PrevLogIndex,
-				// term of prevLogIndex entry
 				PrevLogTerm:  PrevLogTerm,
 				Entries:      []LogEntry{entry},
 				LeaderCommit: rf.commitIndex,
@@ -212,6 +211,8 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 		rf.mu.Unlock()
 	}
 
+	go rf.checkMatchIndex()
+
 	for {
 		time.Sleep(BROADCAST_TIME)
 		rf.mu.Lock()
@@ -221,7 +222,7 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 		}
 		rf.mu.Unlock()
 	}
-	return rf.commitIndex - 1, rf.currentTerm, rf.state == LEADER
+	return rf.commitIndex, rf.currentTerm, rf.state == LEADER
 }
 
 // the tester doesn't halt goroutines created by Raft after each test,
@@ -258,7 +259,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
-	rf.applyCh = make(chan raftapi.ApplyMsg)
+	rf.applyCh = applyCh
 
 	// Your initialization code here (3A, 3B, 3C).
 	rf.state = FOLLOWER
