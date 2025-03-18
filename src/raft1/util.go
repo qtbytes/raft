@@ -59,6 +59,38 @@ func (rf *Raft) initIndex() {
 	rf.matchIndex = make([]int, len(rf.peers))
 	for i := range rf.nextIndex {
 		rf.nextIndex[i] = len(rf.log)
-		rf.matchIndex[i] = -1
+		rf.matchIndex[i] = 0
+	}
+}
+
+// If there exists an N such that N > commitIndex, a majority
+// of matchIndex[i] ≥ N, and log[N].term == currentTerm:
+// set commitIndex = N (§5.3, §5.4)
+func (rf *Raft) checkMatchIndex() {
+	for !rf.killed() {
+		rf.mu.Lock()
+		n := rf.commitIndex + 1
+		cnt := 0
+		for _, i := range rf.matchIndex {
+			if i >= n {
+				cnt++
+			}
+		}
+		if cnt > len(rf.peers)/2 {
+			DPrintf("After check matchIndex, %v %v update commitIndex to %v", rf.state, rf.me, n)
+			rf.commitIndex = n
+		}
+		rf.mu.Unlock()
+
+		// FIXME: this may block channel then stop heartbeat
+		if rf.commitIndex > rf.lastApplied {
+			// Apply on state machine
+			rf.applyCh <- rf.log[rf.lastApplied].Entry
+			DPrintf("%v %v apply log %v to state machine", rf.state, rf.me,
+				rf.log[rf.lastApplied])
+			rf.lastApplied++
+		}
+
+		time.Sleep(BROADCAST_TIME)
 	}
 }
