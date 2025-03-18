@@ -52,20 +52,6 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 	reply.Success = true
 	reply.Term = rf.currentTerm
 
-	// Rules for Servers:
-	// If commitIndex > lastApplied: increment lastApplied, apply
-	// log[lastApplied] to state machine (§5.3)
-	msgs := make([]raftapi.ApplyMsg, 0)
-	for args.LeaderCommit > rf.lastApplied {
-		DPrintf("%v %v increase lastApplied %v to LeaderCommit %v", rf.state, rf.me, rf.lastApplied, args.LeaderCommit)
-		msgs = append(msgs, rf.log[rf.lastApplied].Entry)
-		rf.lastApplied++
-	}
-	rf.mu.Unlock()
-	for _, msg := range msgs {
-		rf.applyCh <- msg
-	}
-	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
 	// heartbeat
@@ -75,8 +61,7 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 	DPrintf("%v %v received Entries %v", rf.state, rf.me, args.Entries)
 	// 2. Reply false if log doesn’t contain an entry at prevLogIndex
 	// whose term matches prevLogTerm (§5.3)
-	if len(rf.log) > 0 && len(rf.log) >= args.PrevLogIndex &&
-		rf.log[args.PrevLogIndex-1].Term != args.PrevLogTerm {
+	if args.PrevLogIndex >= 0 && len(rf.log) > args.PrevLogIndex && rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
 		DPrintf("%v %v reply false, entry %v don't match (%v, %v) ", rf.state, rf.me,
 			rf.log[args.PrevLogIndex], args.PrevLogIndex, args.PrevLogTerm)
 		reply.Success = false
@@ -110,6 +95,16 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 	// set commitIndex = min(leaderCommit, index of last new entry)
 	if args.LeaderCommit > rf.commitIndex {
 		rf.commitIndex = min(args.LeaderCommit, len(rf.log))
+		DPrintf("%v %v update commitIndex to %v", rf.state, rf.me, rf.commitIndex)
+		// Rules for Servers:
+		// If commitIndex > lastApplied: increment lastApplied, apply
+		// log[lastApplied] to state machine (§5.3)
+		for rf.commitIndex > rf.lastApplied {
+			DPrintf("%v %v apply log %v to state machine", rf.state, rf.me,
+				rf.log[rf.lastApplied])
+			rf.applyCh <- rf.log[rf.lastApplied].Entry
+			rf.lastApplied++
+		}
 	}
 
 }
@@ -146,34 +141,21 @@ func (rf *Raft) sendAppendEntries(server int, args *RequestAppendArgs, reply *Re
 			rf.mu.Unlock()
 			return
 		}
-		msgs := make([]raftapi.ApplyMsg, 0)
+		// msgs := make([]raftapi.ApplyMsg, 0)
 		if reply.Success {
-			rf.successCount++
 			rf.nextIndex[server]++
 			DPrintf("%v %v receive success from %v", rf.state, rf.me, server)
-			if rf.successCount > len(rf.peers)/2 {
-				// Only apply once
-				if rf.lastApplied < len(rf.log) {
-					// Apply on state machine
-					msgs = append(msgs, rf.log[rf.lastApplied].Entry)
-					DPrintf("%v %v have %v success, apply log %v to state machine", rf.state, rf.me,
-						rf.successCount, rf.log[rf.lastApplied])
-					rf.lastApplied++
-					rf.commitIndex++
-				}
-				if rf.lastApplied > rf.matchIndex[server] {
-					rf.matchIndex[server]++
-				}
-			}
+			// if rf.lastApplied > rf.matchIndex[server] {
+			// TODO: Handle multi entries
+			// rf.matchIndex[server] += len(args.Entries)
+			rf.matchIndex[server]++
+			// }
 		} else {
 			rf.nextIndex[server]--
 			// time.Sleep(10 * time.Millisecond)
 			// continue
 		}
 		rf.mu.Unlock()
-		for _, msg := range msgs {
-			rf.applyCh <- msg
-		}
 		return
 	}
 }
