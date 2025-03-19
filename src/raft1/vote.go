@@ -40,14 +40,12 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.votedFor = -1
 		rf.state = FOLLOWER
 	}
-	// check candidate’s log is at least as up-to-date as receiver’s logl
-	upToDate := true
-	if len(rf.log) > 0 {
-		entry := rf.log[len(rf.log)-1]
-		if !(args.LastLogTerm > entry.Term || (args.LastLogTerm == entry.Term && args.LastLogIndex > entry.Index)) {
-			upToDate = false
-		}
-	}
+
+	// check candidate’s log is at least as up-to-date as receiver’s log
+	term := rf.log[len(rf.log)-1].Term
+	upToDate := args.LastLogTerm > term ||
+		(args.LastLogTerm == term && args.LastLogIndex+1 >= len(rf.log))
+
 	if upToDate && (rf.votedFor == -1 || rf.votedFor == args.CandidateID) {
 		DPrintf("%v %v vote for Candidate %v", rf.state, rf.me, args.CandidateID)
 		rf.state = FOLLOWER
@@ -55,7 +53,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		reply.VoteGranted = true
 	} else {
 		if !upToDate {
-			DPrintf("%v %v don't vote for Candidate %v, log more up-to-date", rf.state, rf.me, args.CandidateID)
+			DPrintf("%v %v don't vote for Candidate %v, log is more up-to-date", rf.state, rf.me, args.CandidateID)
 		} else {
 			DPrintf("%v %v don't vote for Candidate %v, already voted for Candidate %v", rf.state, rf.me, args.CandidateID, rf.votedFor)
 		}
@@ -137,10 +135,7 @@ func (rf *Raft) startElection() {
 
 	state, me, term := rf.state, rf.me, rf.currentTerm
 	lastLogIndex := len(rf.log) - 1
-	lastLogTerm := 0
-	if lastLogIndex >= 0 {
-		lastLogTerm = rf.log[lastLogIndex].Term
-	}
+	lastLogTerm := rf.log[lastLogIndex].Term
 	rf.mu.Unlock()
 
 	for server := range rf.peers {

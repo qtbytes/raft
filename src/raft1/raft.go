@@ -267,7 +267,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	rf.currentTerm = 0
 	rf.votedFor = -1
-	rf.log = make([]LogEntry, 0)
+	rf.log = []LogEntry{{Term: 0, Index: 0}} // sentinel
 
 	rf.commitIndex = 0
 	rf.lastApplied = 0
