@@ -96,15 +96,7 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 	if args.LeaderCommit > rf.commitIndex {
 		rf.commitIndex = min(args.LeaderCommit, len(rf.log))
 		DPrintf("%v %v update commitIndex to %v", rf.state, rf.me, rf.commitIndex)
-		// Rules for Servers:
-		// If commitIndex > lastApplied: increment lastApplied, apply
-		// log[lastApplied] to state machine (§5.3)
-		for rf.commitIndex > rf.lastApplied {
-			DPrintf("%v %v apply log %v to state machine", rf.state, rf.me,
-				rf.log[rf.lastApplied])
-			rf.applyCh <- rf.log[rf.lastApplied].Entry
-			rf.lastApplied++
-		}
+		rf.needApply.Broadcast()
 	}
 
 }

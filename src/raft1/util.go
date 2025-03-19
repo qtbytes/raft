@@ -4,6 +4,8 @@ import (
 	"log"
 	"math/rand"
 	"time"
+
+	"6.5840/raftapi"
 )
 
 // Debugging
@@ -80,17 +82,34 @@ func (rf *Raft) checkMatchIndex() {
 			DPrintf("After check matchIndex, %v %v update commitIndex to %v", rf.state, rf.me, n)
 			rf.commitIndex = n
 		}
+		rf.needApply.Broadcast()
 		rf.mu.Unlock()
 
-		// FIXME: this may block channel then stop heartbeat
-		if rf.commitIndex > rf.lastApplied {
-			// Apply on state machine
-			rf.applyCh <- rf.log[rf.lastApplied].Entry
-			DPrintf("%v %v apply log %v to state machine", rf.state, rf.me,
-				rf.log[rf.lastApplied])
-			rf.lastApplied++
+		time.Sleep(BROADCAST_TIME)
+	}
+}
+
+// Rules for Servers:
+// If commitIndex > lastApplied: increment lastApplied, apply
+// log[lastApplied] to state machine (§5.3)
+func (rf *Raft) apply() {
+	for !rf.killed() {
+		rf.needApply.L.Lock()
+		for !(rf.commitIndex > rf.lastApplied) {
+			rf.needApply.Wait()
 		}
 
-		time.Sleep(BROADCAST_TIME)
+		rf.lastApplied++
+		DPrintf("%v %v update lastApplied to %v", rf.state, rf.me, rf.lastApplied)
+		DPrintf("%v %v apply log %v to state machine", rf.state, rf.me,
+			rf.log[rf.lastApplied])
+
+		go func(entry raftapi.ApplyMsg) {
+			if entry.CommandValid {
+				rf.applyCh <- entry
+			}
+		}(rf.log[rf.lastApplied].Entry)
+
+		rf.needApply.L.Unlock()
 	}
 }

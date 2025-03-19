@@ -42,7 +42,8 @@ type Raft struct {
 	electionTimeout time.Duration
 	voteCount       int // vote count when election
 
-	applyCh chan raftapi.ApplyMsg // store committed entry
+	applyCh   chan raftapi.ApplyMsg // store committed entry
+	needApply sync.Cond
 
 	// Your data here (3A, 3B, 3C).
 	// Look at the paper's Figure 2 for a description of what
@@ -260,6 +261,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.persister = persister
 	rf.me = me
 	rf.applyCh = applyCh
+	rf.mu = sync.Mutex{}
+	rf.needApply = *sync.NewCond(&rf.mu)
 
 	// Your initialization code here (3A, 3B, 3C).
 	rf.state = FOLLOWER
@@ -276,6 +279,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.readPersist(persister.ReadRaftState())
 
 	go rf.ticker()
+	go rf.apply()
 
 	return rf
 }
