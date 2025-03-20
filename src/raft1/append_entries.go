@@ -29,22 +29,18 @@ type RequestAppendReply struct {
 
 func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply) {
 	rf.mu.Lock()
+	defer rf.mu.Unlock()
 
-	action := "heartbeat"
-	if len(args.Entries) > 0 {
-		action = "AppendEntries"
-	}
 	// 1. Reply false if term < currentTerm (§5.1)
 	if args.Term < rf.currentTerm {
-		DPrintf("%v %v has term: %v, reject %v from %v with term %v", rf.state, rf.me,
-			rf.currentTerm, action, args.LeaderID, args.Term)
+		DPrintf("%v %v reject AppendEntries from %v, because term: %v > %v", rf.state, rf.me,
+			args.LeaderID, rf.currentTerm, args.Term)
 		reply.Success = false
 		reply.Term = rf.currentTerm
-		rf.mu.Unlock()
 		return
 	}
-	DPrintf("%v %v has term: %v, received %v from %v with term %v", rf.state, rf.me,
-		rf.currentTerm, action, args.LeaderID, args.Term)
+	// DPrintf("%v %v has term: %v, received AppendEntries from %v with term %v", rf.state, rf.me,
+	// 	rf.currentTerm, args.LeaderID, args.Term)
 	rf.resetElectionTimer()
 	rf.currentTerm = args.Term
 	rf.votedFor = -1
@@ -52,12 +48,6 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 	reply.Success = true
 	reply.Term = rf.currentTerm
 
-	defer rf.mu.Unlock()
-
-	// heartbeat
-	if action == "heartbeat" {
-		return
-	}
 	DPrintf("%v %v received Entries %v", rf.state, rf.me, args.Entries)
 	// 2. Reply false if log doesn’t contain an entry at prevLogIndex
 	// whose term matches prevLogTerm (§5.3)
@@ -114,26 +104,25 @@ func (rf *Raft) sendAppendEntries(server int, args *RequestAppendArgs, reply *Re
 			continue
 		}
 		rf.mu.Lock()
+		defer rf.mu.Unlock()
 
 		//  old RPC replies
 		if rf.currentTerm != args.Term {
-			DPrintf("%v %v find %v != %v, maybe old rpc replies", rf.state, rf.me, rf.currentTerm, args.Term)
-			rf.mu.Unlock()
+			DPrintf("%v %v find currentTerm: %v != args.Term: %v, ignore old rpc replies",
+				rf.state, rf.me, rf.currentTerm, args.Term)
 			return
 		}
 		if reply.Term > rf.currentTerm {
+			DPrintf("%v %v find server %v has larger Trem, switch to Follower", rf.state, rf.me, server)
 			rf.currentTerm = reply.Term
 			rf.state = FOLLOWER
 			rf.votedFor = -1
-			rf.mu.Unlock()
 			return
 		}
 		// Heartbeat
 		if len(args.Entries) == 0 {
-			rf.mu.Unlock()
 			return
 		}
-		// msgs := make([]raftapi.ApplyMsg, 0)
 		if reply.Success {
 			rf.matchIndex[server] = args.PrevLogIndex + len(args.Entries)
 			rf.nextIndex[server] = rf.matchIndex[server] + 1
@@ -141,10 +130,10 @@ func (rf *Raft) sendAppendEntries(server int, args *RequestAppendArgs, reply *Re
 				rf.state, rf.me, server, rf.matchIndex[server], rf.nextIndex[server])
 		} else {
 			rf.nextIndex[server]--
+			DPrintf("%v %v receive failed from %v", rf.state, rf.me, server)
 			// time.Sleep(10 * time.Millisecond)
 			// continue
 		}
-		rf.mu.Unlock()
 		return
 	}
 }
@@ -176,7 +165,8 @@ func (rf *Raft) sendHeartBeat() {
 			if server != rf.me {
 				go func(server int) {
 					reply := RequestAppendReply{}
-					DPrintf("%v %v send heartbeat to %v", rf.state, rf.me, server)
+					DPrintf("%v %v send heartbeat to %v, Leader commitIndex: %v",
+						rf.state, rf.me, server, args.LeaderCommit)
 					rf.sendAppendEntries(server, &args, &reply)
 				}(server)
 			}
