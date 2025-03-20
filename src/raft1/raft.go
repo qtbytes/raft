@@ -164,13 +164,9 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 	// Your code here (3B).
 
 	rf.mu.Lock()
-
-	index := rf.commitIndex
-	term := rf.currentTerm
-	isLeader := rf.state == LEADER
-	if !isLeader {
+	if rf.state != LEADER {
 		rf.mu.Unlock()
-		return index, term, isLeader
+		return -1, -1, false
 	}
 	entries := make([]LogEntry, 0)
 	// TODO: Handle multi entries
@@ -223,7 +219,9 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 		}
 		rf.mu.Unlock()
 	}
-	return rf.commitIndex, rf.currentTerm, rf.state == LEADER
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	return len(rf.log) - 1, rf.currentTerm, (rf.state == LEADER)
 }
 
 // the tester doesn't halt goroutines created by Raft after each test,
