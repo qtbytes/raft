@@ -94,7 +94,7 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 	// 5. If leaderCommit > commitIndex,
 	// set commitIndex = min(leaderCommit, index of last new entry)
 	if args.LeaderCommit > rf.commitIndex {
-		rf.commitIndex = min(args.LeaderCommit, len(rf.log))
+		rf.commitIndex = min(args.LeaderCommit, len(rf.log)-1)
 		DPrintf("%v %v update commitIndex to %v", rf.state, rf.me, rf.commitIndex)
 		rf.needApply.Broadcast()
 	}
@@ -135,13 +135,10 @@ func (rf *Raft) sendAppendEntries(server int, args *RequestAppendArgs, reply *Re
 		}
 		// msgs := make([]raftapi.ApplyMsg, 0)
 		if reply.Success {
-			rf.nextIndex[server]++
-			DPrintf("%v %v receive success from %v", rf.state, rf.me, server)
-			// if rf.lastApplied > rf.matchIndex[server] {
-			// TODO: Handle multi entries
-			// rf.matchIndex[server] += len(args.Entries)
-			rf.matchIndex[server]++
-			// }
+			rf.matchIndex[server] = args.PrevLogIndex + len(args.Entries)
+			rf.nextIndex[server] = rf.matchIndex[server] + 1
+			DPrintf("%v %v receive success from Follower %v, update matchIndex to %v, nextIndex to %v",
+				rf.state, rf.me, server, rf.matchIndex[server], rf.nextIndex[server])
 		} else {
 			rf.nextIndex[server]--
 			// time.Sleep(10 * time.Millisecond)
