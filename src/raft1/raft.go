@@ -178,28 +178,26 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 	DPrintf("%v %v receive log entry %v from clients", rf.state, rf.me, entries[0])
 	rf.log = append(rf.log, entries...)
 	rf.mu.Unlock()
-
+	// DPrintf("%v %v commitIndex: %v %v", rf.state, rf.me, rf.commitIndex, rf.log)
 	for server := range rf.peers {
 		if server == rf.me {
 			continue
 		}
 		rf.mu.Lock()
 		go func(server int) {
-			entry := entries[0]
-			if len(rf.log) >= rf.nextIndex[server] {
-				entry = rf.log[rf.nextIndex[server]]
-			}
-			PrevLogIndex := rf.nextIndex[server] - 1
-			PrevLogTerm := 0
-			if PrevLogIndex >= 0 {
-				PrevLogTerm = rf.log[PrevLogIndex].Term
-			}
+			// If last log index ≥ nextIndex for a follower: send
+			// AppendEntries RPC with log entries starting at nextIndex
+			nextIndex := rf.nextIndex[server]
+			entries := rf.log[nextIndex:]
+			DPrintf("%v %v send %v to follower %v", rf.state, rf.me, entries, server)
+			PrevLogIndex := nextIndex - 1
+			PrevLogTerm := rf.log[PrevLogIndex].Term
 			args := RequestAppendArgs{
 				Term:         rf.currentTerm,
 				LeaderID:     rf.me,
 				PrevLogIndex: PrevLogIndex,
 				PrevLogTerm:  PrevLogTerm,
-				Entries:      []LogEntry{entry},
+				Entries:      entries,
 				LeaderCommit: rf.commitIndex,
 			}
 			reply := RequestAppendReply{}
@@ -207,18 +205,16 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 		}(server)
 		rf.mu.Unlock()
 	}
-
 	go rf.checkMatchIndex()
 
-	for {
-		time.Sleep(BROADCAST_TIME)
-		rf.mu.Lock()
-		DPrintf("%v %v %v", rf.commitIndex, rf.currentTerm, rf.state == LEADER)
-		if rf.commitIndex > 0 {
-			break
-		}
-		rf.mu.Unlock()
-	}
+	// Need to wait for follower commit
+	// time.Sleep(2 * BROADCAST_TIME)
+	// rf.needApply.L.Lock()
+	// for !(rf.commitIndex == len(rf.log)-1) {
+	// 	rf.needApply.Wait()
+	// }
+	// DPrintf("%v %v %v", rf.commitIndex, rf.currentTerm, rf.state == LEADER)
+	// rf.needApply.L.Unlock()
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	return len(rf.log) - 1, rf.currentTerm, (rf.state == LEADER)
