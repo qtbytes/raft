@@ -72,7 +72,7 @@ func (rf *Raft) checkMatchIndex() {
 	for !rf.killed() {
 		rf.mu.Lock()
 		n := rf.commitIndex + 1
-		cnt := 0
+		cnt := 1 // leader is always success
 		for _, i := range rf.matchIndex {
 			if i >= n {
 				cnt++
