@@ -39,6 +39,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.currentTerm = args.Term
 		rf.votedFor = -1
 		rf.state = FOLLOWER
+		rf.initIndex() // Init nextIndex and matchIndex
 	}
 
 	// check candidate’s log is at least as up-to-date as receiver’s log
@@ -96,8 +97,10 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 			time.Sleep(10 * time.Millisecond)
 			continue
 		}
+
 		rf.mu.Lock()
 		defer rf.mu.Unlock()
+
 		if rf.state == FOLLOWER {
 			return
 		}
@@ -116,7 +119,6 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 			if rf.voteCount > len(rf.peers)/2 && rf.state == CANDIDATE {
 				DPrintf("%v %v got %v votes, win election with term %v", rf.state, rf.me, rf.voteCount, rf.currentTerm)
 				rf.state = LEADER
-				rf.initIndex() // Init nextIndex and matchIndex
 				go rf.sendHeartBeat()
 				return
 			}
@@ -131,6 +133,7 @@ func (rf *Raft) startElection() {
 	rf.currentTerm++
 	rf.votedFor = rf.me
 	rf.resetElectionTimer()
+	rf.initIndex() // Init nextIndex and matchIndex
 	rf.voteCount = 1
 
 	state, me, term := rf.state, rf.me, rf.currentTerm
