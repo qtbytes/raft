@@ -175,7 +175,7 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 		Index: len(rf.log),
 		Entry: raftapi.ApplyMsg{CommandValid: true, Command: command, CommandIndex: len(rf.log)},
 	})
-	DPrintf("%v %v receive log entry %v from clients", rf.state, rf.me, entries[0])
+	DPrintf("%v %v receive log entry %+v from clients", rf.state, rf.me, entries[0])
 	rf.log = append(rf.log, entries...)
 	rf.mu.Unlock()
 	// DPrintf("%v %v commitIndex: %v %v", rf.state, rf.me, rf.commitIndex, rf.log)

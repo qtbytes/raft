@@ -141,7 +141,6 @@ func (rf *Raft) startElection() {
 	for server := range rf.peers {
 		if server != me {
 			go func(server int) {
-				DPrintf("%v %v send vote request to %v", state, me, server)
 				args := RequestVoteArgs{
 					Term:         term,
 					CandidateID:  me,
@@ -149,6 +148,7 @@ func (rf *Raft) startElection() {
 					LastLogTerm:  lastLogTerm,
 				}
 				reply := RequestVoteReply{}
+				DPrintf("%v %v send vote request to %v, args: %+v", state, me, server, args)
 				rf.sendRequestVote(server, &args, &reply)
 			}(server)
 		}

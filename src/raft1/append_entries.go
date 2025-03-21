@@ -39,16 +39,17 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 		reply.Term = rf.currentTerm
 		return
 	}
-	// DPrintf("%v %v has term: %v, received AppendEntries from %v with term %v", rf.state, rf.me,
-	// 	rf.currentTerm, args.LeaderID, args.Term)
+
 	rf.resetElectionTimer()
 	rf.currentTerm = args.Term
 	rf.votedFor = -1
 	rf.state = FOLLOWER
+
 	reply.Success = true
 	reply.Term = rf.currentTerm
 
-	DPrintf("%v %v received Entries %v", rf.state, rf.me, args.Entries)
+	DPrintf("%v %v received Entries %+v", rf.state, rf.me, args.Entries)
+
 	// 2. Reply false if log doesn’t contain an entry at prevLogIndex
 	// whose term matches prevLogTerm (§5.3)
 	if len(rf.log) <= args.PrevLogIndex || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
@@ -70,13 +71,16 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 		}
 	}
 
-	rf.log = rf.log[:p]
+	if p != len(rf.log) {
+		DPrintf("%v %v Log[%v] is conflict with new entry, delete log[%v:]", rf.state, rf.me, p, p)
+		rf.log = rf.log[:p]
+	}
 
 	// 4. Append any new entries not already in the log
 	for _, entry := range args.Entries {
 		i := entry.Index
 		if i >= len(rf.log) {
-			DPrintf("%v %v append new entries %v to log", rf.state, rf.me, entry)
+			DPrintf("%v %v append new entries %+v to log", rf.state, rf.me, entry)
 			rf.log = append(rf.log, entry)
 		}
 	}
@@ -119,10 +123,6 @@ func (rf *Raft) sendAppendEntries(server int, args *RequestAppendArgs, reply *Re
 			rf.votedFor = -1
 			return
 		}
-		// Heartbeat
-		if len(args.Entries) == 0 {
-			return
-		}
 		if reply.Success {
 			rf.matchIndex[server] = args.PrevLogIndex + len(args.Entries)
 			rf.nextIndex[server] = rf.matchIndex[server] + 1
@@ -130,7 +130,8 @@ func (rf *Raft) sendAppendEntries(server int, args *RequestAppendArgs, reply *Re
 				rf.state, rf.me, server, rf.matchIndex[server], rf.nextIndex[server])
 		} else {
 			rf.nextIndex[server]--
-			DPrintf("%v %v receive failed from %v", rf.state, rf.me, server)
+			DPrintf("%v %v receive failed from %v, update nextIndex[%v] to %v",
+				rf.state, rf.me, server, server, rf.nextIndex[server])
 			// time.Sleep(10 * time.Millisecond)
 			// continue
 		}
@@ -146,10 +147,7 @@ func (rf *Raft) sendHeartBeat() {
 			return
 		}
 		prevLogIndex := len(rf.log) - 1
-		prevLogTerm := 0
-		if prevLogIndex >= 0 {
-			prevLogTerm = rf.log[prevLogIndex].Term
-		}
+		prevLogTerm := rf.log[prevLogIndex].Term
 
 		args := RequestAppendArgs{
 			Term:         rf.currentTerm,
@@ -165,8 +163,8 @@ func (rf *Raft) sendHeartBeat() {
 			if server != rf.me {
 				go func(server int) {
 					reply := RequestAppendReply{}
-					DPrintf("%v %v send heartbeat to %v, Leader commitIndex: %v",
-						rf.state, rf.me, server, args.LeaderCommit)
+					DPrintf("%v %v send heartbeat to %v, %+v",
+						rf.state, rf.me, server, args)
 					rf.sendAppendEntries(server, &args, &reply)
 				}(server)
 			}

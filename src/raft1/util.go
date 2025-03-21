@@ -101,7 +101,7 @@ func (rf *Raft) apply() {
 
 		rf.lastApplied++
 		DPrintf("%v %v update lastApplied to %v", rf.state, rf.me, rf.lastApplied)
-		DPrintf("%v %v apply log %v to state machine", rf.state, rf.me,
+		DPrintf("%v %v apply log %+v to state machine", rf.state, rf.me,
 			rf.log[rf.lastApplied])
 
 		go func(entry raftapi.ApplyMsg) {
