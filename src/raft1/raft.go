@@ -183,27 +183,31 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 		if server == rf.me {
 			continue
 		}
+
 		rf.mu.Lock()
-		go func(server int) {
-			// If last log index ≥ nextIndex for a follower: send
-			// AppendEntries RPC with log entries starting at nextIndex
-			nextIndex := rf.nextIndex[server]
-			entries := rf.log[nextIndex:]
+		currentTerm := rf.currentTerm
+		nextIndex := rf.nextIndex[server]
+		// If last log index ≥ nextIndex for a follower: send
+		// AppendEntries RPC with log entries starting at nextIndex
+		entries := rf.log[nextIndex:]
+		prevLogIndex := nextIndex - 1
+		prevLogTerm := rf.log[prevLogIndex].Term
+		leaderCommit := rf.commitIndex
+		rf.mu.Unlock()
+
+		go func(server, currentTerm, prevLogIndex, prevLogTerm int, entries []LogEntry, leaderCommit int) {
 			DPrintf("%v %v send %v to follower %v", rf.state, rf.me, entries, server)
-			PrevLogIndex := nextIndex - 1
-			PrevLogTerm := rf.log[PrevLogIndex].Term
 			args := RequestAppendArgs{
-				Term:         rf.currentTerm,
+				Term:         currentTerm,
 				LeaderID:     rf.me,
-				PrevLogIndex: PrevLogIndex,
-				PrevLogTerm:  PrevLogTerm,
+				PrevLogIndex: prevLogIndex,
+				PrevLogTerm:  prevLogTerm,
 				Entries:      entries,
-				LeaderCommit: rf.commitIndex,
+				LeaderCommit: leaderCommit,
 			}
 			reply := RequestAppendReply{}
 			rf.sendAppendEntries(server, &args, &reply)
-		}(server)
-		rf.mu.Unlock()
+		}(server, currentTerm, prevLogIndex, prevLogTerm, entries, leaderCommit)
 	}
 	go rf.checkMatchIndex()
 
