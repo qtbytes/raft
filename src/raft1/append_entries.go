@@ -51,9 +51,9 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 	DPrintf("%v %v received Entries %v", rf.state, rf.me, args.Entries)
 	// 2. Reply false if log doesn’t contain an entry at prevLogIndex
 	// whose term matches prevLogTerm (§5.3)
-	if args.PrevLogIndex >= 0 && len(rf.log) > args.PrevLogIndex && rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
-		DPrintf("%v %v reply false, entry %v don't match (%v, %v) ", rf.state, rf.me,
-			rf.log[args.PrevLogIndex], args.PrevLogIndex, args.PrevLogTerm)
+	if len(rf.log) <= args.PrevLogIndex || rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
+		DPrintf("%v %v reply false,%+v don't have an entry match (index: %v, term: %v)",
+			rf.state, rf.me, rf.log, args.PrevLogIndex, args.PrevLogTerm)
 		reply.Success = false
 		reply.Term = rf.currentTerm
 		return
