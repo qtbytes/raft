@@ -168,15 +168,15 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 		rf.mu.Unlock()
 		return -1, -1, false
 	}
-	entries := make([]LogEntry, 0)
-	// TODO: Handle multi entries
-	entries = append(entries, LogEntry{
+	entry := LogEntry{
 		Term:  rf.currentTerm,
 		Index: len(rf.log),
 		Entry: raftapi.ApplyMsg{CommandValid: true, Command: command, CommandIndex: len(rf.log)},
-	})
-	DPrintf("%v %v receive log entry %+v from clients", rf.state, rf.me, entries[0])
-	rf.log = append(rf.log, entries...)
+	}
+
+	DPrintf("%v %v receive log entry %+v from clients", rf.state, rf.me, entry)
+	rf.log = append(rf.log, entry)
+
 	rf.mu.Unlock()
 	// DPrintf("%v %v commitIndex: %v %v", rf.state, rf.me, rf.commitIndex, rf.log)
 	for server := range rf.peers {
