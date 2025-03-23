@@ -28,16 +28,17 @@ func (rf *Raft) ticker() {
 		// Your code here (3A)
 		// Check if a leader election should be started.
 		rf.mu.Lock()
+		isLeader := rf.state == LEADER
+		timeElapsed := time.Since(rf.lastTime)
+		electionTimeout := rf.electionTimeout
+		rf.mu.Unlock()
 
 		// DPrintf("%v %v term: %v", rf.state, rf.me, rf.currentTerm)
 
-		if rf.state != LEADER && time.Since(rf.lastTime) >= rf.electionTimeout {
-			DPrintf("%v %v: don't receive heartbeat after %v, start election\n", rf.state, rf.me, rf.electionTimeout)
-			rf.mu.Unlock()
+		if !isLeader && timeElapsed >= electionTimeout {
+			DPrintf("%v %v: don't receive heartbeat after %v, start election\n",
+				rf.state, rf.me, rf.electionTimeout)
 			rf.startElection()
-			return
-		} else {
-			rf.mu.Unlock()
 		}
 
 		// The paper's Section 5.2 mentions election timeouts in the range of
