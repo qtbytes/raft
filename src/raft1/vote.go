@@ -33,22 +33,21 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		return
 	}
 
-	rf.resetElectionTimer()
-
 	if args.Term > rf.currentTerm {
 		rf.currentTerm = args.Term
 		rf.votedFor = -1
 		rf.state = FOLLOWER
-		rf.initIndex() // Init nextIndex and matchIndex
 	}
 
 	// check candidate’s log is at least as up-to-date as receiver’s log
-	term := rf.log[len(rf.log)-1].Term
+	index := len(rf.log) - 1
+	term := rf.log[index].Term
 	upToDate := args.LastLogTerm > term ||
-		(args.LastLogTerm == term && args.LastLogIndex+1 >= len(rf.log))
+		(args.LastLogTerm == term && args.LastLogIndex >= index)
 
 	if upToDate && (rf.votedFor == -1 || rf.votedFor == args.CandidateID) {
 		DPrintf("%v %v vote for Candidate %v", rf.state, rf.me, args.CandidateID)
+		rf.resetElectionTimer()
 		rf.state = FOLLOWER
 		rf.votedFor = args.CandidateID
 		reply.VoteGranted = true
@@ -126,6 +125,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 		return
 	}
 }
+
 func (rf *Raft) startElection() {
 	rf.mu.Lock()
 
