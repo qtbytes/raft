@@ -174,40 +174,20 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 		Entry: raftapi.ApplyMsg{CommandValid: true, Command: command, CommandIndex: len(rf.log)},
 	}
 
-	DPrintf("%v %v receive log entry %+v from clients", rf.state, rf.me, entry)
+	DPrintf("%v %v receive log entry (term: %v, index: %v, command: %v) from clients",
+		rf.state, rf.me, entry.Term, entry.Index, entry.Entry.Command)
+
 	rf.log = append(rf.log, entry)
 
 	rf.mu.Unlock()
 	// DPrintf("%v %v commitIndex: %v %v", rf.state, rf.me, rf.commitIndex, rf.log)
 	for server := range rf.peers {
-		if server == rf.me {
-			continue
+		if server != rf.me {
+			go func(server int) {
+				// DPrintf("%v %v send %+v to follower %v", rf.state, rf.me, entries, server)
+				rf.sendAppendEntries(server)
+			}(server)
 		}
-
-		rf.mu.Lock()
-		currentTerm := rf.currentTerm
-		nextIndex := rf.nextIndex[server]
-		// If last log index ≥ nextIndex for a follower: send
-		// AppendEntries RPC with log entries starting at nextIndex
-		entries := rf.log[nextIndex:]
-		prevLogIndex := nextIndex - 1
-		prevLogTerm := rf.log[prevLogIndex].Term
-		leaderCommit := rf.commitIndex
-		rf.mu.Unlock()
-
-		go func(server, currentTerm, prevLogIndex, prevLogTerm int, entries []LogEntry, leaderCommit int) {
-			DPrintf("%v %v send %v to follower %v", rf.state, rf.me, entries, server)
-			args := RequestAppendArgs{
-				Term:         currentTerm,
-				LeaderID:     rf.me,
-				PrevLogIndex: prevLogIndex,
-				PrevLogTerm:  prevLogTerm,
-				Entries:      entries,
-				LeaderCommit: leaderCommit,
-			}
-			reply := RequestAppendReply{}
-			rf.sendAppendEntries(server, &args, &reply)
-		}(server, currentTerm, prevLogIndex, prevLogTerm, entries, leaderCommit)
 	}
 
 	go rf.updateCommitIndex()
