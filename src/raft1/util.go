@@ -67,21 +67,26 @@ func (rf *Raft) initIndex() {
 // If there exists an N such that N > commitIndex, a majority
 // of matchIndex[i] ≥ N, and log[N].term == currentTerm:
 // set commitIndex = N (§5.3, §5.4)
-func (rf *Raft) checkMatchIndex() {
+func (rf *Raft) updateCommitIndex() {
 	for !rf.killed() {
+
 		rf.mu.Lock()
+
 		n := rf.commitIndex + 1
-		cnt := 1 // leader is always success
-		for _, i := range rf.matchIndex {
-			if i >= n {
-				cnt++
+		if n < len(rf.log) {
+			cnt := 1 // leader is always success                                                                              █
+			for _, i := range rf.matchIndex {
+				if i >= n {
+					cnt++
+				}
+			}
+			if cnt > len(rf.peers)/2 && rf.log[n].Term == rf.currentTerm {
+				DPrintf("After check matchIndex, %v %v update commitIndex to %v", rf.state, rf.me, n)
+				rf.commitIndex = n
+				rf.needApply.Broadcast()
 			}
 		}
-		if cnt > len(rf.peers)/2 {
-			DPrintf("After check matchIndex, %v %v update commitIndex to %v", rf.state, rf.me, n)
-			rf.commitIndex = n
-		}
-		rf.needApply.Broadcast()
+
 		rf.mu.Unlock()
 
 		time.Sleep(BROADCAST_TIME)
@@ -100,8 +105,7 @@ func (rf *Raft) apply() {
 
 		rf.lastApplied++
 		DPrintf("%v %v update lastApplied to %v", rf.state, rf.me, rf.lastApplied)
-		DPrintf("%v %v apply log %+v to state machine", rf.state, rf.me,
-			rf.log[rf.lastApplied])
+		DPrintf("%v %v apply log[%v] to state machine", rf.state, rf.me, rf.lastApplied)
 
 		go func(entry raftapi.ApplyMsg) {
 			if entry.CommandValid {

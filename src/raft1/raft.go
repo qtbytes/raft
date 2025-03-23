@@ -209,7 +209,8 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 			rf.sendAppendEntries(server, &args, &reply)
 		}(server, currentTerm, prevLogIndex, prevLogTerm, entries, leaderCommit)
 	}
-	go rf.checkMatchIndex()
+
+	go rf.updateCommitIndex()
 
 	// Need to wait for follower commit
 	// time.Sleep(2 * BROADCAST_TIME)
