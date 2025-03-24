@@ -179,6 +179,10 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 
 	rf.log = append(rf.log, entry)
 
+	index := len(rf.log) - 1
+	term := rf.currentTerm
+	isLeader := rf.state == LEADER
+
 	rf.mu.Unlock()
 	// DPrintf("%v %v commitIndex: %v %v", rf.state, rf.me, rf.commitIndex, rf.log)
 	for server := range rf.peers {
@@ -200,9 +204,7 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 	// }
 	// DPrintf("%v %v %v", rf.commitIndex, rf.currentTerm, rf.state == LEADER)
 	// rf.needApply.L.Unlock()
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-	return len(rf.log) - 1, rf.currentTerm, (rf.state == LEADER)
+	return index, term, isLeader
 }
 
 // the tester doesn't halt goroutines created by Raft after each test,
