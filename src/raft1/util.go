@@ -5,8 +5,6 @@ import (
 	"math/rand"
 	"sort"
 	"time"
-
-	"6.5840/raftapi"
 )
 
 // Debugging
@@ -99,15 +97,14 @@ func (rf *Raft) apply() {
 			rf.needApply.Wait()
 		}
 
-		rf.lastApplied++
-		DPrintf("%v %v update lastApplied to %v", rf.state, rf.me, rf.lastApplied)
-		DPrintf("%v %v apply log[%v] to state machine", rf.state, rf.me, rf.lastApplied)
+		for rf.commitIndex > rf.lastApplied {
+			rf.lastApplied++
+			DPrintf("%v %v update lastApplied to %v", rf.state, rf.me, rf.lastApplied)
 
-		go func(entry raftapi.ApplyMsg) {
-			if entry.CommandValid {
-				rf.applyCh <- entry
-			}
-		}(rf.log[rf.lastApplied].Entry)
+			rf.applyCh <- rf.log[rf.lastApplied].Entry
+			DPrintf("%v %v apply log[%v] %v to state machine", rf.state, rf.me,
+				rf.lastApplied, rf.log[rf.lastApplied])
+		}
 
 		rf.needApply.L.Unlock()
 	}
