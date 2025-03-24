@@ -2,8 +2,8 @@ package lock
 
 import (
 
+	"6.5840/kvsrv1"
 	"6.5840/kvsrv1/rpc"
-	"6.5840/shardkv1/kvsrv1"
 	"6.5840/shardkv1/shardctrler/param"
 )
 
