@@ -183,26 +183,17 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 	isLeader := rf.state == LEADER
 
 	rf.mu.Unlock()
-	// DPrintf("%v %v commitIndex: %v %v", rf.state, rf.me, rf.commitIndex, rf.log)
+
 	for server := range rf.peers {
 		if server != rf.me {
 			go func(server int) {
-				// DPrintf("%v %v send %+v to follower %v", rf.state, rf.me, entries, server)
-				rf.sendAppendEntries(server)
+				rf.sendAppendEntries(server, false)
 			}(server)
 		}
 	}
 
 	go rf.updateCommitIndex()
 
-	// Need to wait for follower commit
-	// time.Sleep(2 * BROADCAST_TIME)
-	// rf.needApply.L.Lock()
-	// for !(rf.commitIndex == len(rf.log)-1) {
-	// 	rf.needApply.Wait()
-	// }
-	// DPrintf("%v %v %v", rf.commitIndex, rf.currentTerm, rf.state == LEADER)
-	// rf.needApply.L.Unlock()
 	return index, term, isLeader
 }
 

@@ -111,7 +111,7 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 	}
 
 }
-func (rf *Raft) sendAppendEntries(server int) {
+func (rf *Raft) sendAppendEntries(server int, heartBeat bool) {
 	for !rf.killed() {
 		time.Sleep(10 * time.Millisecond)
 
@@ -124,7 +124,10 @@ func (rf *Raft) sendAppendEntries(server int) {
 
 		currentTerm := rf.currentTerm
 		nextIndex := rf.nextIndex[server]
-		entries := rf.log[nextIndex:]
+		entries := []LogEntry{}
+		if !heartBeat {
+			entries = rf.log[nextIndex:]
+		}
 		prevLogIndex := nextIndex - 1
 		prevLogTerm := rf.log[prevLogIndex].Term
 		leaderCommit := rf.commitIndex
@@ -205,7 +208,7 @@ func (rf *Raft) sendHeartBeat() {
 			if server != rf.me {
 				go func(server int) {
 					// DPrintf("%v %v send heartbeat to %v, %+v", rf.state, rf.me, server, args)
-					rf.sendAppendEntries(server)
+					rf.sendAppendEntries(server, true)
 				}(server)
 			}
 		}
