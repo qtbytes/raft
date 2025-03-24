@@ -3,6 +3,7 @@ package raft
 import (
 	"log"
 	"math/rand"
+	"sort"
 	"time"
 
 	"6.5840/raftapi"
@@ -72,19 +73,14 @@ func (rf *Raft) updateCommitIndex() {
 
 		rf.mu.Lock()
 
-		n := rf.commitIndex + 1
-		if n < len(rf.log) {
-			cnt := 1 // leader is always success                                                                              █
-			for _, i := range rf.matchIndex {
-				if i >= n {
-					cnt++
-				}
-			}
-			if cnt > len(rf.peers)/2 && rf.log[n].Term == rf.currentTerm {
-				DPrintf("After check matchIndex, %v %v update commitIndex to %v", rf.state, rf.me, n)
-				rf.commitIndex = n
-				rf.needApply.Broadcast()
-			}
+		sorted := make([]int, len(rf.matchIndex))
+		copy(sorted, rf.matchIndex)
+		sort.Ints(sorted)
+		n := sorted[(len(rf.peers)+1)/2]
+		if n > rf.commitIndex && rf.log[n].Term == rf.currentTerm {
+			DPrintf("After check matchIndex, %v %v update commitIndex to %v", rf.state, rf.me, n)
+			rf.commitIndex = n
+			rf.needApply.Broadcast()
 		}
 
 		rf.mu.Unlock()
