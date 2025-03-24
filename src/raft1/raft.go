@@ -174,8 +174,7 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 		Entry: raftapi.ApplyMsg{CommandValid: true, Command: command, CommandIndex: len(rf.log)},
 	}
 
-	DPrintf("%v %v receive log entry (term: %v, index: %v, command: %v) from clients",
-		rf.state, rf.me, entry.Term, entry.Index, entry.Entry.Command)
+	DPrintf("%v %v receive log entry %v from clients", rf.state, rf.me, entry)
 
 	rf.log = append(rf.log, entry)
 

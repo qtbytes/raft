@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"fmt"
 	"time"
 
 	"6.5840/raftapi"
@@ -10,6 +11,11 @@ type LogEntry struct {
 	Term  int
 	Index int
 	Entry raftapi.ApplyMsg
+}
+
+func (log LogEntry) String() string {
+	return fmt.Sprintf("(term: %v, index: %v, command: %v)",
+		log.Term, log.Index, log.Entry.Command)
 }
 
 type RequestAppendArgs struct {
@@ -91,6 +97,7 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 		if i >= len(rf.log) {
 			DPrintf("%v %v append new entry (term: %v, index: %v, command: %v) to log",
 				rf.state, rf.me, entry.Term, entry.Index, entry.Entry.Command)
+			DPrintf("%v %v append new entry %v to log", rf.state, rf.me, entry)
 			rf.log = append(rf.log, entry)
 		}
 	}
