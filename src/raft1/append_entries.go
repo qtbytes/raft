@@ -199,10 +199,11 @@ func (rf *Raft) sendHeartBeat() {
 
 		rf.mu.Lock()
 		isLeader := rf.state == LEADER
+		state, me := rf.state, rf.me
 		rf.mu.Unlock()
 
 		if !isLeader {
-			DPrintf("%v %v is not Leader anymore, stop send heartbeat", rf.state, rf.me)
+			DPrintf("%v %v is not Leader anymore, stop send heartbeat", state, me)
 			return
 		}
 
