@@ -144,7 +144,7 @@ func (rf *Raft) sendAppendEntries(server int, heartBeat bool) {
 			LeaderCommit: leaderCommit,
 		}
 		reply := RequestAppendReply{}
-		DPrintf("%v %v sent args: %+v to %v", rf.state, rf.me, args, server)
+		DPrintf("%v sent args: %+v to %v", rf.me, args, server)
 
 		ok := rf.peers[server].Call("Raft.AppendEntries", &args, &reply)
 		if !ok {
