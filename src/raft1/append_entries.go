@@ -125,11 +125,13 @@ func (rf *Raft) sendAppendEntries(server int, heartBeat bool) {
 		currentTerm := rf.currentTerm
 		nextIndex := rf.nextIndex[server]
 		entries := []LogEntry{}
+		prevLogIndex := len(rf.log) - 1
+		prevLogTerm := rf.log[prevLogIndex].Term
 		if !heartBeat {
 			entries = rf.log[nextIndex:]
+			prevLogIndex = nextIndex - 1
+			prevLogTerm = rf.log[prevLogIndex].Term
 		}
-		prevLogIndex := nextIndex - 1
-		prevLogTerm := rf.log[prevLogIndex].Term
 		leaderCommit := rf.commitIndex
 		rf.mu.Unlock()
 
