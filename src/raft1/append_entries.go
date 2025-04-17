@@ -165,6 +165,7 @@ func (rf *Raft) sendAppendEntries(server int, heartBeat bool) {
 			rf.mu.Lock()
 			DPrintf("%v %v find server %v has larger Trem, switch to Follower", rf.state, rf.me, server)
 			rf.state = FOLLOWER
+			rf.resetElectionTimer()
 			rf.votedFor = -1
 			rf.currentTerm = reply.Term
 			rf.mu.Unlock()
