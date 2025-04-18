@@ -179,6 +179,7 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 	DPrintf("%v %v receive log entry %v from clients", rf.state, rf.me, entry)
 
 	rf.log = append(rf.log, entry)
+	rf.persist()
 
 	index := len(rf.log) - 1
 	term := rf.currentTerm

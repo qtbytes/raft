@@ -38,6 +38,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 			rf.state, rf.me, args.CandidateID)
 		rf.currentTerm = args.Term
 		rf.votedFor = -1
+		rf.persist()
 		rf.state = FOLLOWER
 	}
 
@@ -52,6 +53,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.resetElectionTimer()
 		rf.state = FOLLOWER
 		rf.votedFor = args.CandidateID
+		rf.persist()
 		reply.VoteGranted = true
 	} else {
 		if !upToDate {
@@ -109,6 +111,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 		if reply.Term > rf.currentTerm {
 			rf.currentTerm = reply.Term
 			rf.votedFor = -1
+			rf.persist()
 			rf.state = FOLLOWER
 			return
 		}
@@ -134,6 +137,7 @@ func (rf *Raft) startElection() {
 	rf.state = CANDIDATE
 	rf.currentTerm++
 	rf.votedFor = rf.me
+	rf.persist()
 	rf.resetElectionTimer()
 	rf.initIndex() // Init nextIndex and matchIndex
 	rf.voteCount = 1

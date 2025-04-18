@@ -49,6 +49,7 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 	rf.resetElectionTimer()
 	rf.currentTerm = args.Term
 	rf.votedFor = -1
+	rf.persist()
 	rf.state = FOLLOWER
 
 	reply.Success = true
@@ -89,16 +90,16 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 	if p != len(rf.log) {
 		DPrintf("%v %v Log[%v] is conflict with new entry, delete log[%v:]", rf.state, rf.me, p, p)
 		rf.log = rf.log[:p]
+		rf.persist()
 	}
 
 	// 4. Append any new entries not already in the log
 	for _, entry := range args.Entries {
 		i := entry.Index
 		if i >= len(rf.log) {
-			DPrintf("%v %v append new entry (term: %v, index: %v, command: %v) to log",
-				rf.state, rf.me, entry.Term, entry.Index, entry.Entry.Command)
 			DPrintf("%v %v append new entry %v to log", rf.state, rf.me, entry)
 			rf.log = append(rf.log, entry)
+			rf.persist()
 		}
 	}
 
@@ -168,6 +169,7 @@ func (rf *Raft) sendAppendEntries(server int, heartBeat bool) {
 			rf.resetElectionTimer()
 			rf.votedFor = -1
 			rf.currentTerm = reply.Term
+			rf.persist()
 			rf.mu.Unlock()
 			return
 		}
