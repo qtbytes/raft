@@ -25,12 +25,14 @@ type RequestAppendArgs struct {
 	PrevLogTerm  int        // term of prevLogIndex entry
 	Entries      []LogEntry // log entries to store (empty for heartbeat; may send more than one for efficiency)
 	LeaderCommit int        // leader’s commitIndex
-
 }
+
 type RequestAppendReply struct {
 	Term    int  // currentTerm, for leader to update itself
 	Success bool // true if follower contained entry matching prevLogIndex and prevLogTerm
-
+	XTerm   int  // term in the conflicting entry (if any)
+	XIndex  int  // index of first entry with that term (if any)
+	XLen    int  // log length
 }
 
 func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply) {
@@ -65,6 +67,7 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 			rf.state, rf.me, len(rf.log), args.PrevLogIndex)
 		reply.Success = false
 		reply.Term = rf.currentTerm
+		reply.XLen = len(rf.log)
 		return
 	}
 
@@ -73,6 +76,13 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 			rf.state, rf.me, rf.log[args.PrevLogIndex], args.PrevLogIndex, args.PrevLogTerm)
 		reply.Success = false
 		reply.Term = rf.currentTerm
+		reply.XTerm = rf.log[args.PrevLogIndex].Term
+		for i, entry := range rf.log {
+			if entry.Term == reply.XTerm {
+				reply.XIndex = i
+				break
+			}
+		}
 		return
 	}
 
@@ -185,13 +195,36 @@ func (rf *Raft) sendAppendEntries(server int, heartBeat bool) {
 			return
 		} else {
 			rf.mu.Lock()
-			if rf.nextIndex[server] > 1 && rf.log[rf.nextIndex[server]-1].Term != reply.Term {
-				rf.nextIndex[server]--
-				DPrintf("%v %v receive failed from %v, accord reply.Term: %v, update nextIndex[%v] to %v",
-					rf.state, rf.me, server, reply.Term, server, rf.nextIndex[server])
+			if reply.XTerm != 0 {
+				xIndex := -1
+				for i, entry := range rf.log {
+					if entry.Term == reply.XTerm {
+						xIndex = i
+					}
+				}
+				if xIndex == -1 {
+					// Case 1: leader doesn't have XTerm:
+					rf.nextIndex[server] = reply.XIndex
+				} else {
+					// Case 2: leader has XTerm:
+					// nextIndex = (index of leader's last entry for XTerm) + 1
+					rf.nextIndex[server] = xIndex + 1
+				}
 			}
+			// Case 3: follower's log is too short:
+			if reply.XLen != 0 {
+				rf.nextIndex[server] = reply.XLen
+			}
+			DPrintf("%v %v receive failed from %v, accord reply: %+v, update nextIndex[%v] to %v",
+				rf.state, rf.me, server, reply, server, rf.nextIndex[server])
+
+			// if rf.nextIndex[server] > 1 && rf.log[rf.nextIndex[server]-1].Term != reply.Term {
+			// rf.nextIndex[server]--
+			// DPrintf("%v %v receive failed from %v, accord reply.Term: %v, update nextIndex[%v] to %v",
+			// rf.state, rf.me, server, reply.Term, server, rf.nextIndex[server])
+			// }
 			// DPrintf("%v %v find appendEntries failed, retry with prevLogIndex: %v, args: %+v",
-			// 	rf.state, rf.me, args.PrevLogIndex, args)
+			// rf.state, rf.me, args.PrevLogIndex, args)
 			rf.mu.Unlock()
 		}
 	}
