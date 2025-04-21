@@ -76,6 +76,9 @@ type Raft struct {
 	// for each server, index of highest log entry known to be replicated on server
 	// (initialized to 0, increases monotonically)
 	matchIndex []int
+
+	snapShot      []byte
+	snapShotIndex int
 }
 
 // return currentTerm and whether this server
@@ -108,7 +111,7 @@ func (rf *Raft) persist() {
 	e.Encode(rf.votedFor)
 	e.Encode(rf.log)
 	raftstate := w.Bytes()
-	rf.persister.Save(raftstate, nil)
+	rf.persister.Save(raftstate, rf.snapShot)
 }
 
 // restore previously persisted state.
@@ -146,6 +149,21 @@ func (rf *Raft) PersistBytes() int {
 // that index. Raft should now trim its log as much as possible.
 func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	// Your code here (3D).
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	for i, entry := range rf.log {
+		if entry.Index > index {
+			DPrintf("Got snapshot start at %v, remove logs whose index < %v", index, index)
+			DPrintf("Before: %v", rf.log)
+			rf.log = rf.log[i:]
+			DPrintf("After: %v", rf.log)
+			break
+		}
+	}
+
+	rf.snapShot = snapshot
+	rf.snapShotIndex = index
 
 }
 
