@@ -109,3 +109,14 @@ func (rf *Raft) apply() {
 		rf.needApply.L.Unlock()
 	}
 }
+
+func (rf *Raft) switchToFollower(other int, term int) {
+	rf.mu.Lock()
+	DPrintf("%v %v find server %v has larger Trem, switch to Follower", rf.state, rf.me, other)
+	rf.state = FOLLOWER
+	rf.resetElectionTimer()
+	rf.votedFor = -1
+	rf.currentTerm = term
+	rf.persist()
+	rf.mu.Unlock()
+}
