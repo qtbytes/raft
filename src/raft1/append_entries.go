@@ -63,7 +63,7 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 	// 2. Reply false if log doesn’t contain an entry at prevLogIndex
 	// whose term matches prevLogTerm (§5.3)
 	if len(rf.log) <= args.PrevLogIndex {
-		DPrintf("%v %v reply false, len: %v < prevLogIndex: %v",
+		DPrintf("%v %v reply false, len: %v <= prevLogIndex: %v",
 			rf.state, rf.me, len(rf.log), args.PrevLogIndex)
 		reply.Success = false
 		reply.Term = rf.currentTerm
@@ -139,9 +139,16 @@ func (rf *Raft) sendAppendEntries(server int, heartBeat bool) {
 		prevLogIndex := len(rf.log) - 1
 		prevLogTerm := rf.log[prevLogIndex].Term
 		if !heartBeat {
-			entries = rf.log[nextIndex:]
-			prevLogIndex = nextIndex - 1
-			prevLogTerm = rf.log[prevLogIndex].Term
+			if nextIndex <= rf.snapShotIndex {
+				rf.mu.Unlock()
+				rf.sendSanpShot(server)
+				return
+			} else {
+				entries = rf.log[nextIndex:]
+				prevLogIndex = nextIndex - 1
+				prevLogTerm = rf.log[prevLogIndex].Term
+
+			}
 		}
 		leaderCommit := rf.commitIndex
 		rf.mu.Unlock()

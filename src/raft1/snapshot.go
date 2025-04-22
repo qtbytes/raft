@@ -1,6 +1,10 @@
 package raft
 
-import "6.5840/raftapi"
+import (
+	"time"
+
+	"6.5840/raftapi"
+)
 
 type SnapShotArgs struct {
 	Term              int // leader’s term
@@ -44,21 +48,50 @@ func (rf *Raft) InstallSanpShot(args *SnapShotArgs, reply *SnapShotReply) {
 	// 5. Save snapshot file, discard any existing or partial snapshot with a smaller index
 
 	copy(rf.snapShot, args.Data)
-	rf.snapShotIndex = args.LastIncludedIndex
-
-	rf.SaveSnapShot(rf.snapShot, args.LastIncludedTerm, args.LastIncludedIndex)
+	if args.LastIncludedIndex > rf.snapShotIndex {
+		rf.snapShotIndex = args.LastIncludedIndex
+		DPrintf("update snapshot index to %v", rf.snapShotIndex)
+		rf.SaveSnapShot(rf.snapShot, args.LastIncludedTerm, args.LastIncludedIndex)
+	}
 
 	// 6. If existing log entry has same index and term as snapshot’s
 	// last included entry, retain log entries following it and reply
-	for i, entry := range rf.log {
-		if entry.Index == args.LastIncludedIndex && entry.Term == args.LastIncludedTerm {
-			DPrintf("remove log index < snapshot's last included entry")
-			rf.log = rf.log[i:]
-			return
-		}
-	}
+	// for i, entry := range rf.log {
+	// 	if entry.Index == args.LastIncludedIndex && entry.Term == args.LastIncludedTerm {
+	// 		DPrintf("remove log index < snapshot's last included entry")
+	// 		rf.log = rf.log[i:]
+	// 		return
+	// 	}
+	// }
 	// 7. Discard the entire log
-	rf.log = []LogEntry{}
+	// rf.log = []LogEntry{}
 	// 8. Reset state machine using snapshot contents (and load
 	// snapshot’s cluster configuration)
+}
+
+func (rf *Raft) sendSanpShot(server int) {
+	rf.mu.Lock()
+	args := SnapShotArgs{
+		Term:              rf.currentTerm,
+		LeaderId:          rf.me,
+		LastIncludedIndex: rf.snapShotIndex,
+		LastIncludedTerm:  rf.log[rf.snapShotIndex].Term,
+		Data:              rf.snapShot,
+	}
+	rf.mu.Unlock()
+	reply := SnapShotReply{}
+
+	for {
+		DPrintf("Sending snapshot to %v", server)
+		ok := rf.peers[server].Call("Raft.InstallSanpShot", &args, &reply)
+		if !ok {
+			time.Sleep(BROADCAST_TIME)
+			continue
+		}
+
+		if reply.Term > rf.currentTerm {
+			rf.switchToFollower(server, reply.Term)
+		}
+		break
+	}
 }

@@ -109,7 +109,7 @@ func (rf *Raft) persist() {
 	e := labgob.NewEncoder(w)
 	e.Encode(rf.currentTerm)
 	e.Encode(rf.votedFor)
-	e.Encode(rf.log)
+	e.Encode(rf.log[rf.snapShotIndex+1:])
 	raftstate := w.Bytes()
 	rf.persister.Save(raftstate, rf.snapShot)
 }
@@ -152,18 +152,20 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	for i, entry := range rf.log {
-		if entry.Index > index {
-			DPrintf("Got snapshot start at %v, remove logs whose index < %v", index, index)
-			DPrintf("Before: %v", rf.log)
-			rf.log = rf.log[i:]
-			DPrintf("After: %v", rf.log)
-			break
-		}
-	}
+	// we don't delete log, use a offset replace
+
+	// for i, entry := range rf.log {
+	// 	if entry.Index > index {
+	// 		DPrintf("Got snapshot start at %v, remove logs whose index < %v", index, index)
+	// 		DPrintf("Before: %v", rf.log)
+	// 		rf.log = rf.log[i:]
+	// 		DPrintf("After: %v", rf.log)
+	// 		break
+	// 	}
+	// }
 
 	rf.snapShot = snapshot
-	rf.snapShotIndex = index
+	rf.snapShotIndex = max(rf.snapShotIndex, index)
 
 }
 
