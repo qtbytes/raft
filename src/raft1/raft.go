@@ -7,13 +7,10 @@ package raft
 // Make() creates a new raft peer that implements the raft interface.
 
 import (
-	"bytes"
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"6.5840/labgob"
 	"6.5840/labrpc"
 	"6.5840/raftapi"
 	tester "6.5840/tester1"
@@ -94,53 +91,6 @@ func (rf *Raft) GetState() (int, bool) {
 	isleader = rf.state == LEADER
 
 	return term, isleader
-}
-
-// save Raft's persistent state to stable storage,
-// where it can later be retrieved after a crash and restart.
-// see paper's Figure 2 for a description of what should be persistent.
-// before you've implemented snapshots, you should pass nil as the
-// second argument to persister.Save().
-// after you've implemented snapshots, pass the current snapshot
-// (or nil if there's not yet a snapshot).
-func (rf *Raft) persist() {
-	// Your code here (3C).
-	w := new(bytes.Buffer)
-	e := labgob.NewEncoder(w)
-	e.Encode(rf.currentTerm)
-	e.Encode(rf.votedFor)
-	e.Encode(rf.log[rf.snapShotIndex+1:])
-	raftstate := w.Bytes()
-	rf.persister.Save(raftstate, rf.snapShot)
-}
-
-// restore previously persisted state.
-func (rf *Raft) readPersist(data []byte) {
-	if len(data) < 1 { // bootstrap without any state?
-		return
-	}
-	// Your code here (3C).
-	r := bytes.NewBuffer(data)
-	d := labgob.NewDecoder(r)
-	var currentTerm int
-	var votedFor int
-	var log []LogEntry
-	if d.Decode(&currentTerm) != nil ||
-		d.Decode(&votedFor) != nil ||
-		d.Decode(&log) != nil {
-		fmt.Println("Decode failed, something is wrong!")
-	} else {
-		rf.currentTerm = currentTerm
-		rf.votedFor = votedFor
-		rf.log = log
-	}
-}
-
-// how many bytes in Raft's persisted log?
-func (rf *Raft) PersistBytes() int {
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-	return rf.persister.RaftStateSize()
 }
 
 // the service says it has created a snapshot that has
