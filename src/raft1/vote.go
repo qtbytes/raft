@@ -38,13 +38,14 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 			rf.state, rf.me, args.CandidateID)
 		rf.currentTerm = args.Term
 		rf.votedFor = -1
-		rf.persist()
 		rf.state = FOLLOWER
+		rf.persist()
 	}
 
 	// check candidate’s log is at least as up-to-date as receiver’s log
-	index := len(rf.log) - 1
-	term := rf.log[index].Term
+	index := rf.len - 1
+	term := rf.getTerm(index)
+
 	upToDate := args.LastLogTerm > term ||
 		(args.LastLogTerm == term && args.LastLogIndex >= index)
 
@@ -111,8 +112,8 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 		if reply.Term > rf.currentTerm {
 			rf.currentTerm = reply.Term
 			rf.votedFor = -1
-			rf.persist()
 			rf.state = FOLLOWER
+			rf.persist()
 			return
 		}
 
@@ -143,8 +144,8 @@ func (rf *Raft) startElection() {
 	rf.voteCount = 1
 
 	state, me, term := rf.state, rf.me, rf.currentTerm
-	lastLogIndex := len(rf.log) - 1
-	lastLogTerm := rf.log[lastLogIndex].Term
+	lastLogIndex := rf.len - 1
+	lastLogTerm := rf.getTerm(lastLogIndex)
 	rf.mu.Unlock()
 
 	for server := range rf.peers {

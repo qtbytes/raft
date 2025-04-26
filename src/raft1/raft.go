@@ -53,6 +53,7 @@ type Raft struct {
 	currentTerm int
 	// candidateId that received vote in current term (or null if none)
 	votedFor int
+	len      int
 	// log entries; each entry contains command for state machine, and term when entry
 	// was received by leader (first index is 1)
 	log []LogEntry
@@ -134,26 +135,23 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 // the leader.
 func (rf *Raft) Start(command any) (int, int, bool) {
 	// Your code here (3B).
+	if !rf.isLeader() {
+		return 0, 0, false
+	}
 
 	rf.mu.Lock()
-	if rf.state != LEADER {
-		rf.mu.Unlock()
-		return -1, -1, false
-	}
-	entry := LogEntry{
-		Term:  rf.currentTerm,
-		Index: len(rf.log),
-		Entry: raftapi.ApplyMsg{CommandValid: true, Command: command, CommandIndex: len(rf.log)},
-	}
+
+	index := rf.len
+	term := rf.currentTerm
+	isLeader := rf.state == LEADER
+
+	entry := LogEntry{term, index, raftapi.ApplyMsg{CommandValid: true, Command: command, CommandIndex: index}}
 
 	DPrintf("%v %v receive log entry %v from clients", rf.state, rf.me, entry)
 
 	rf.log = append(rf.log, entry)
+	rf.len++
 	rf.persist()
-
-	index := len(rf.log) - 1
-	term := rf.currentTerm
-	isLeader := rf.state == LEADER
 
 	rf.mu.Unlock()
 
@@ -216,6 +214,7 @@ func Make(peers []*labrpc.ClientEnd, me int, persister *tester.Persister,
 	rf.currentTerm = 0
 	rf.votedFor = -1
 	rf.log = []LogEntry{{Term: 0, Index: 0}} // sentinel
+	rf.len = 1
 
 	rf.commitIndex = 0
 	rf.lastApplied = 0

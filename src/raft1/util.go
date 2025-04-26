@@ -3,15 +3,15 @@ package raft
 import (
 	"log"
 	"math/rand"
+	"os"
 	"sort"
 	"time"
 )
 
 // Debugging
-const Debug = true
 
 func DPrintf(format string, a ...interface{}) {
-	if Debug {
+	if os.Getenv("DEBUG") == "1" {
 		log.Printf(format, a...)
 	}
 }
@@ -58,8 +58,8 @@ func (rf *Raft) initIndex() {
 	rf.nextIndex = make([]int, len(rf.peers))
 	rf.matchIndex = make([]int, len(rf.peers))
 	for i := range rf.nextIndex {
-		rf.nextIndex[i] = len(rf.log)
 		rf.matchIndex[i] = 0
+		rf.nextIndex[i] = rf.len
 	}
 }
 
@@ -74,10 +74,10 @@ func (rf *Raft) updateCommitIndex() {
 		sorted := make([]int, len(rf.matchIndex))
 		copy(sorted, rf.matchIndex)
 		sort.Ints(sorted)
-		n := sorted[(len(rf.peers)+1)/2]
-		if n > rf.commitIndex && rf.log[n].Term == rf.currentTerm {
-			DPrintf("After check matchIndex, %v %v update commitIndex to %v", rf.state, rf.me, n)
-			rf.commitIndex = n
+		N := sorted[(len(rf.peers)+1)/2]
+		if N > rf.commitIndex && rf.get(N).Term == rf.currentTerm {
+			DPrintf("After check matchIndex, %v %v update commitIndex to %v", rf.state, rf.me, N)
+			rf.commitIndex = N
 			rf.needApply.Broadcast()
 		}
 
@@ -100,10 +100,10 @@ func (rf *Raft) apply() {
 		for rf.commitIndex > rf.lastApplied {
 			rf.lastApplied++
 			DPrintf("%v %v update lastApplied to %v", rf.state, rf.me, rf.lastApplied)
+			log := rf.get(rf.lastApplied)
 
-			rf.applyCh <- rf.log[rf.lastApplied].Entry
-			DPrintf("%v %v apply log[%v] %v to state machine", rf.state, rf.me,
-				rf.lastApplied, rf.log[rf.lastApplied])
+			rf.applyCh <- log.Entry
+			DPrintf("%v %v apply log %v to state machine", rf.state, rf.me, log)
 		}
 
 		rf.needApply.L.Unlock()
@@ -119,4 +119,26 @@ func (rf *Raft) switchToFollower(other int, term int) {
 	rf.currentTerm = term
 	rf.persist()
 	rf.mu.Unlock()
+}
+
+func (rf *Raft) isLeader() bool {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	return rf.state == LEADER
+}
+
+func (rf *Raft) get(i int) LogEntry {
+	return rf.log[i-rf.snapShotIndex]
+}
+
+func (rf *Raft) getTerm(i int) (term int) {
+	// if i-rf.snapShotIndex == 0 {
+	// 	if rf.snapShotIndex != 0 {
+	// 		DPrintf("Error: visiting index before snapshot index")
+	// 	}
+	// 	term = -1
+	// } else {
+	// 	term = rf.get(i).Term
+	// }
+	return rf.get(i).Term
 }
