@@ -45,7 +45,7 @@ func (rf *Raft) readPersist(data []byte) {
 	} else {
 		rf.currentTerm = ps.Term
 		rf.votedFor = ps.VotedFor
-		rf.initLog()
+		rf.initLog(rf.snapShotTerm(), rf.snapShotIndex())
 		rf.log = append(rf.log, ps.Log...)
 		rf.len = ps.Len
 		// DPrintf("3C: Recover state of server %v: term: %v, votedFor: %v, log: %v\n",

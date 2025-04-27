@@ -56,7 +56,7 @@ type Raft struct {
 	len      int
 	// log entries; each entry contains command for state machine, and term when entry
 	// was received by leader (first index is 1)
-	log []LogEntry
+	log []LogEntry // the first log is LastSnapShotTerm, LastSnapShotIndex, nil Command
 
 	// --------------------- Volatile state on all servers:
 
@@ -75,9 +75,7 @@ type Raft struct {
 	// (initialized to 0, increases monotonically)
 	matchIndex []int
 
-	snapShot      []byte
-	snapShotIndex int
-	snapShotTerm  int
+	snapShot []byte
 }
 
 // return currentTerm and whether this server
@@ -104,7 +102,7 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	if index > rf.snapShotIndex {
+	if index > rf.snapShotIndex() {
 		j := 0
 		for i, entry := range rf.log {
 			if entry.Index <= index {
@@ -112,17 +110,17 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 			}
 		}
 		rf.snapShot = snapshot
-		rf.snapShotIndex = index
-		rf.snapShotTerm = rf.log[j].Term
-		DPrintf("Update snapshot (index to %v, term to %v)", rf.snapShotIndex, rf.snapShotTerm)
+		rf.initLog(rf.log[j].Term, rf.log[j].Index)
+		DPrintf("Update snapshot (index to %v, term to %v)", rf.snapShotIndex(), rf.snapShotTerm())
 
 		DPrintf("Got snapshot start at %v, remove logs whose index <= %v", index, index)
 		DPrintf("Before: %v", rf.log)
 		rf.log = append(rf.log[0:1], rf.log[j+1:]...)
+		rf.persist()
 		DPrintf("After: %v", rf.log)
 	} else {
 		DPrintf("Reject snapshot start at %v, rf.snapShotIndex: %v > new index: %v",
-			index, rf.snapShotIndex, index)
+			index, rf.snapShotIndex(), index)
 	}
 }
 
@@ -219,7 +217,7 @@ func Make(peers []*labrpc.ClientEnd, me int, persister *tester.Persister,
 
 	rf.currentTerm = 0
 	rf.votedFor = -1
-	rf.initLog()
+	rf.initLog(0, 0)
 	rf.len = 1
 
 	rf.commitIndex = 0

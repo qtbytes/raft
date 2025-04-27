@@ -134,7 +134,7 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 }
 func (rf *Raft) sendAppendEntries(server int, heartBeat bool) {
 	for !rf.killed() {
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(BROADCAST_TIME)
 
 		if !rf.isLeader() {
 			return
@@ -151,12 +151,12 @@ func (rf *Raft) sendAppendEntries(server int, heartBeat bool) {
 			prevLogTerm = rf.getTerm(prevLogIndex)
 		} else {
 			nextIndex := rf.nextIndex[server]
-			if nextIndex <= rf.snapShotIndex {
+			if nextIndex <= rf.snapShotIndex() {
 				rf.mu.Unlock()
 				rf.sendSanpShot(server)
 				return
 			} else {
-				index := nextIndex - rf.snapShotIndex
+				index := nextIndex - rf.snapShotIndex()
 				entries = rf.log[index:]
 				prevLogIndex = nextIndex - 1
 				prevLogTerm = rf.getTerm(prevLogIndex)
@@ -209,20 +209,20 @@ func (rf *Raft) sendAppendEntries(server int, heartBeat bool) {
 			return
 		} else {
 			rf.mu.Lock()
-			if rf.nextIndex[server] > 1 && rf.get(rf.nextIndex[server]-1).Term != reply.Term {
-				rf.nextIndex[server]--
-				DPrintf("%v %v receive failed from %v, accord reply.Term: %v, update nextIndex[%v] to %v",
-					rf.state, rf.me, server, reply.Term, server, rf.nextIndex[server])
-			}
-			DPrintf("%v %v find appendEntries failed, retry with prevLogIndex: %v, args: %+v",
-				rf.state, rf.me, args.PrevLogIndex, args)
+			rf.quickUpdateNextIndex(&reply, server)
+			// if rf.nextIndex[server] > 1 && rf.get(rf.nextIndex[server]-1).Term != reply.Term {
+			// 	rf.nextIndex[server]--
+			// 	DPrintf("%v %v receive failed from %v, accord reply.Term: %v, update nextIndex[%v] to %v",
+			// 		rf.state, rf.me, server, reply.Term, server, rf.nextIndex[server])
+			// }
+			DPrintf("%v %v find appendEntries failed, retry!", rf.state, rf.me)
+			heartBeat = false
 			rf.mu.Unlock()
 		}
 	}
 }
 
 func (rf *Raft) quickUpdateNextIndex(reply *RequestAppendReply, server int) {
-
 	if reply.XTerm != 0 {
 		xIndex := -1
 		for i, entry := range rf.log {
@@ -235,7 +235,6 @@ func (rf *Raft) quickUpdateNextIndex(reply *RequestAppendReply, server int) {
 			rf.nextIndex[server] = reply.XIndex
 		} else {
 			// Case 2: leader has XTerm:
-			// nextIndex = (index of leader's last entry for XTerm) + 1
 			rf.nextIndex[server] = xIndex + 1
 		}
 	}
