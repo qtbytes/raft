@@ -96,17 +96,19 @@ func (rf *Raft) apply() {
 		for !(rf.commitIndex > rf.lastApplied) {
 			rf.needApply.Wait()
 		}
-
-		for rf.commitIndex > rf.lastApplied {
-			rf.lastApplied++
-			DPrintf("%v %v update lastApplied to %v", rf.state, rf.me, rf.lastApplied)
-			log := rf.get(rf.lastApplied)
-
-			rf.applyCh <- log.Entry
-			DPrintf("%v %v apply log %v to state machine", rf.state, rf.me, log)
+		start := rf.lastApplied + 1
+		end := rf.commitIndex
+		entries := rf.log[start-rf.snapShotIndex() : end-rf.snapShotIndex()+1]
+		rf.needApply.L.Unlock()
+		for _, entry := range entries {
+			rf.applyCh <- entry.Entry
 		}
 
-		rf.needApply.L.Unlock()
+		rf.mu.Lock()
+		DPrintf("%v %v apply entries %v to state machine", rf.state, rf.me, entries)
+		rf.lastApplied = max(rf.lastApplied, end)
+		DPrintf("%v %v update lastApplied to %v", rf.state, rf.me, rf.lastApplied)
+		rf.mu.Unlock()
 	}
 }
 
