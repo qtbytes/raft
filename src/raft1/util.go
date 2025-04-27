@@ -59,7 +59,7 @@ func (rf *Raft) initIndex() {
 	rf.matchIndex = make([]int, len(rf.peers))
 	for i := range rf.nextIndex {
 		rf.matchIndex[i] = 0
-		rf.nextIndex[i] = rf.len
+		rf.nextIndex[i] = rf.len()
 	}
 }
 
@@ -125,6 +125,10 @@ func (rf *Raft) isLeader() bool {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	return rf.state == LEADER
+}
+
+func (rf *Raft) len() int {
+	return rf.log[0].Index + len(rf.log)
 }
 
 func (rf *Raft) get(i int) LogEntry {

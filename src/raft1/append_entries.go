@@ -67,12 +67,12 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 
 	// 2. Reply false if log doesn’t contain an entry at prevLogIndex
 	// whose term matches prevLogTerm (§5.3)
-	if rf.len <= args.PrevLogIndex {
+	if rf.len() <= args.PrevLogIndex {
 		DPrintf("%v %v reply false, len: %v <= prevLogIndex: %v",
-			rf.state, rf.me, rf.len, args.PrevLogIndex)
+			rf.state, rf.me, rf.len(), args.PrevLogIndex)
 		reply.Success = false
 		reply.Term = rf.currentTerm
-		reply.XLen = rf.len
+		reply.XLen = rf.len()
 		return
 	}
 
@@ -98,14 +98,13 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 
 	for _, entry := range args.Entries {
 		i := entry.Index
-		if i < rf.len && rf.get(i).Term != entry.Term {
+		if i < rf.len() && rf.get(i).Term != entry.Term {
 			p = min(i, p)
 		}
 	}
 
 	if p != len(rf.log) {
 		DPrintf("%v %v Log[%v] is conflict with new entry, delete log[%v:]", rf.state, rf.me, p, p)
-		rf.len -= len(rf.log) - p
 		rf.log = rf.log[:p]
 		rf.persist()
 	}
@@ -113,10 +112,9 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 	// 4. Append any new entries not already in the log
 	for _, entry := range args.Entries {
 		i := entry.Index
-		if i >= rf.len {
+		if i >= rf.len() {
 			DPrintf("%v %v append new entry %v to log", rf.state, rf.me, entry)
 			rf.log = append(rf.log, entry)
-			rf.len++
 			rf.persist() // TODO: maybe should persist only once
 		}
 	}
@@ -124,7 +122,7 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 	// 5. If leaderCommit > commitIndex,
 	// set commitIndex = min(leaderCommit, index of last new entry)
 	if args.LeaderCommit > rf.commitIndex {
-		rf.commitIndex = min(args.LeaderCommit, rf.len-1)
+		rf.commitIndex = min(args.LeaderCommit, rf.len()-1)
 		DPrintf("%v %v update commitIndex to %v", rf.state, rf.me, rf.commitIndex)
 		rf.needApply.Broadcast()
 	}
@@ -147,7 +145,7 @@ func (rf *Raft) sendAppendEntries(server int, heartBeat bool) {
 		var prevLogTerm int
 
 		if heartBeat {
-			prevLogIndex = rf.len - 1
+			prevLogIndex = rf.len() - 1
 			prevLogTerm = rf.getTerm(prevLogIndex)
 		} else {
 			nextIndex := rf.nextIndex[server]

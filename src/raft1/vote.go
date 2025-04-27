@@ -43,7 +43,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 
 	// check candidate’s log is at least as up-to-date as receiver’s log
-	index := rf.len - 1
+	index := rf.len() - 1
 	term := rf.getTerm(index)
 
 	upToDate := args.LastLogTerm > term ||
@@ -144,7 +144,7 @@ func (rf *Raft) startElection() {
 	rf.voteCount = 1
 
 	state, me, term := rf.state, rf.me, rf.currentTerm
-	lastLogIndex := rf.len - 1
+	lastLogIndex := rf.len() - 1
 	lastLogTerm := rf.getTerm(lastLogIndex)
 	rf.mu.Unlock()
 

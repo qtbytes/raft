@@ -53,7 +53,6 @@ type Raft struct {
 	currentTerm int
 	// candidateId that received vote in current term (or null if none)
 	votedFor int
-	len      int
 	// log entries; each entry contains command for state machine, and term when entry
 	// was received by leader (first index is 1)
 	log []LogEntry // the first log is LastSnapShotTerm, LastSnapShotIndex, nil Command
@@ -145,7 +144,7 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 
 	rf.mu.Lock()
 
-	index := rf.len
+	index := rf.len()
 	term := rf.currentTerm
 	isLeader := rf.state == LEADER
 
@@ -154,7 +153,6 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 	DPrintf("%v %v receive log entry %v from clients", rf.state, rf.me, entry)
 
 	rf.log = append(rf.log, entry)
-	rf.len++
 	rf.persist()
 
 	rf.mu.Unlock()
@@ -218,7 +216,6 @@ func Make(peers []*labrpc.ClientEnd, me int, persister *tester.Persister,
 	rf.currentTerm = 0
 	rf.votedFor = -1
 	rf.initLog(0, 0)
-	rf.len = 1
 
 	rf.commitIndex = 0
 	rf.lastApplied = 0
