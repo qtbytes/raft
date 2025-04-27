@@ -24,7 +24,7 @@ func (rf *Raft) persist() {
 	// Your code here (3C).
 	w := new(bytes.Buffer)
 	e := labgob.NewEncoder(w)
-	e.Encode(PersistState{rf.currentTerm, rf.votedFor, rf.log, rf.len})
+	e.Encode(PersistState{rf.currentTerm, rf.votedFor, rf.log[1:], rf.len})
 	raftstate := w.Bytes()
 	// DPrintf("3C: save state of server %v: term: %v, votedFor: %v, log: %v\n",
 	// 	rf.me, rf.currentTerm, rf.votedFor, rf.log)
@@ -45,7 +45,8 @@ func (rf *Raft) readPersist(data []byte) {
 	} else {
 		rf.currentTerm = ps.Term
 		rf.votedFor = ps.VotedFor
-		rf.log = ps.Log
+		rf.initLog()
+		rf.log = append(rf.log, ps.Log...)
 		rf.len = ps.Len
 		// DPrintf("3C: Recover state of server %v: term: %v, votedFor: %v, log: %v\n",
 		// rf.me, ps.Term, ps.VotedFor, ps.Log)

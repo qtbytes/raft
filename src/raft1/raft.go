@@ -213,7 +213,7 @@ func Make(peers []*labrpc.ClientEnd, me int, persister *tester.Persister,
 
 	rf.currentTerm = 0
 	rf.votedFor = -1
-	rf.log = []LogEntry{{Term: 0, Index: 0}} // sentinel
+	rf.initLog()
 	rf.len = 1
 
 	rf.commitIndex = 0

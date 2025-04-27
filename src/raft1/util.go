@@ -130,6 +130,9 @@ func (rf *Raft) isLeader() bool {
 func (rf *Raft) get(i int) LogEntry {
 	return rf.log[i-rf.snapShotIndex]
 }
+func (rf *Raft) initLog() {
+	rf.log = []LogEntry{{Term: 0, Index: 0}} // sentinel
+}
 
 func (rf *Raft) getTerm(i int) (term int) {
 	// if i-rf.snapShotIndex == 0 {
