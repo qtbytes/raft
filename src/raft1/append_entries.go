@@ -27,6 +27,11 @@ type RequestAppendArgs struct {
 	LeaderCommit int        // leader’s commitIndex
 }
 
+func (args RequestAppendArgs) String() string {
+	return fmt.Sprintf("(Term:%d PrevLogIndex:%d PrevLogTerm:%d Entries(size:%d) LeaderCommit:%d)",
+		args.Term, args.PrevLogIndex, args.PrevLogTerm, len(args.Entries), args.LeaderCommit)
+}
+
 type RequestAppendReply struct {
 	Term    int  // currentTerm, for leader to update itself
 	Success bool // true if follower contained entry matching prevLogIndex and prevLogTerm
@@ -170,7 +175,7 @@ func (rf *Raft) sendAppendEntries(server int, heartBeat bool) {
 		}
 		reply := RequestAppendReply{}
 		if !heartBeat {
-			DPrintf("%v sent args: %+v to %v", rf.me, args, server)
+			DPrintf("Leader %v sent args: %+v to Server %v", rf.me, args, server)
 		}
 
 		ok := rf.peers[server].Call("Raft.AppendEntries", &args, &reply)
