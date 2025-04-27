@@ -99,7 +99,8 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 	for _, entry := range args.Entries {
 		i := entry.Index
 		if i < rf.len() && rf.get(i).Term != entry.Term {
-			p = min(i, p)
+			p = i
+			break
 		}
 	}
 
@@ -110,12 +111,13 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 	}
 
 	// 4. Append any new entries not already in the log
-	for _, entry := range args.Entries {
-		i := entry.Index
-		if i >= rf.len() {
-			DPrintf("%v %v append new entry %v to log", rf.state, rf.me, entry)
-			rf.log = append(rf.log, entry)
-			rf.persist() // TODO: maybe should persist only once
+	for i, entry := range args.Entries {
+		if entry.Index >= rf.len() {
+			entries := args.Entries[i:]
+			DPrintf("%v %v append new entries %v to log", rf.state, rf.me, entries)
+			rf.log = append(rf.log, entries...)
+			rf.persist()
+			break
 		}
 	}
 
