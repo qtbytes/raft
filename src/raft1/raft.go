@@ -77,6 +77,7 @@ type Raft struct {
 
 	snapShot      []byte
 	snapShotIndex int
+	snapShotTerm  int
 }
 
 // return currentTerm and whether this server
@@ -103,21 +104,26 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	// we don't delete log, use a offset replace
+	if index > rf.snapShotIndex {
+		j := 0
+		for i, entry := range rf.log {
+			if entry.Index <= index {
+				j = i
+			}
+		}
+		rf.snapShot = snapshot
+		rf.snapShotIndex = index
+		rf.snapShotTerm = rf.log[j].Term
+		DPrintf("Update snapshot (index to %v, term to %v)", rf.snapShotIndex, rf.snapShotTerm)
 
-	// for i, entry := range rf.log {
-	// 	if entry.Index > index {
-	// 		DPrintf("Got snapshot start at %v, remove logs whose index < %v", index, index)
-	// 		DPrintf("Before: %v", rf.log)
-	// 		rf.log = rf.log[i:]
-	// 		DPrintf("After: %v", rf.log)
-	// 		break
-	// 	}
-	// }
-
-	rf.snapShot = snapshot
-	rf.snapShotIndex = max(rf.snapShotIndex, index)
-
+		DPrintf("Got snapshot start at %v, remove logs whose index <= %v", index, index)
+		DPrintf("Before: %v", rf.log)
+		rf.log = append(rf.log[0:1], rf.log[j+1:]...)
+		DPrintf("After: %v", rf.log)
+	} else {
+		DPrintf("Reject snapshot start at %v, rf.snapShotIndex: %v > new index: %v",
+			index, rf.snapShotIndex, index)
+	}
 }
 
 // goroutine for leader to send heartbeat to followers

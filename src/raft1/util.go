@@ -135,13 +135,10 @@ func (rf *Raft) initLog() {
 }
 
 func (rf *Raft) getTerm(i int) (term int) {
-	// if i-rf.snapShotIndex == 0 {
-	// 	if rf.snapShotIndex != 0 {
-	// 		DPrintf("Error: visiting index before snapshot index")
-	// 	}
-	// 	term = -1
-	// } else {
-	// 	term = rf.get(i).Term
-	// }
-	return rf.get(i).Term
+	if i-rf.snapShotIndex == 0 {
+		term = rf.snapShotTerm
+	} else {
+		term = rf.get(i).Term
+	}
+	return
 }

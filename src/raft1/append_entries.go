@@ -151,7 +151,7 @@ func (rf *Raft) sendAppendEntries(server int, heartBeat bool) {
 			prevLogTerm = rf.getTerm(prevLogIndex)
 		} else {
 			nextIndex := rf.nextIndex[server]
-			if nextIndex < rf.snapShotIndex {
+			if nextIndex <= rf.snapShotIndex {
 				rf.mu.Unlock()
 				rf.sendSanpShot(server)
 				return

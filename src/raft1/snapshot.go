@@ -47,26 +47,27 @@ func (rf *Raft) InstallSanpShot(args *SnapShotArgs, reply *SnapShotReply) {
 	// 4. Reply and wait for more data chunks if done is false
 	// 5. Save snapshot file, discard any existing or partial snapshot with a smaller index
 
-	copy(rf.snapShot, args.Data)
 	if args.LastIncludedIndex > rf.snapShotIndex {
 		rf.snapShotIndex = args.LastIncludedIndex
+		rf.snapShotTerm = args.LastIncludedTerm
 		DPrintf("update snapshot index to %v", rf.snapShotIndex)
-		rf.SaveSnapShot(rf.snapShot, args.LastIncludedTerm, args.LastIncludedIndex)
+		copy(rf.snapShot, args.Data)
 	}
 
 	// 6. If existing log entry has same index and term as snapshot’s
 	// last included entry, retain log entries following it and reply
-	// for i, entry := range rf.log {
-	// 	if entry.Index == args.LastIncludedIndex && entry.Term == args.LastIncludedTerm {
-	// 		DPrintf("remove log index < snapshot's last included entry")
-	// 		rf.log = rf.log[i:]
-	// 		return
-	// 	}
-	// }
+	for i, entry := range rf.log {
+		if entry.Index == args.LastIncludedIndex && entry.Term == args.LastIncludedTerm {
+			DPrintf("remove log index < snapshot's last included entry")
+			rf.log = append(rf.log[0:1], rf.log[i:]...)
+			return
+		}
+	}
 	// 7. Discard the entire log
-	// rf.log = []LogEntry{}
+	rf.initLog()
 	// 8. Reset state machine using snapshot contents (and load
 	// snapshot’s cluster configuration)
+	rf.SaveSnapShot(rf.snapShot, args.LastIncludedTerm, args.LastIncludedIndex)
 }
 
 func (rf *Raft) sendSanpShot(server int) {
