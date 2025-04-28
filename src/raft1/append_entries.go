@@ -54,9 +54,13 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 	}
 
 	rf.resetElectionTimer()
+
+	term, votedFor := rf.currentTerm, rf.votedFor
 	rf.currentTerm = args.Term
 	rf.votedFor = -1
-	rf.persist()
+	if term != rf.currentTerm || votedFor != rf.votedFor {
+		rf.persist()
+	}
 	rf.state = FOLLOWER
 
 	reply.Success = true
@@ -67,6 +71,13 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 
 	// 2. Reply false if log doesn’t contain an entry at prevLogIndex
 	// whose term matches prevLogTerm (§5.3)
+	if args.PrevLogIndex < rf.snapShotIndex() {
+		DPrintf("Unexpected error: prevLogIndex %v <= snapShotIndex %v", args.PrevLogIndex, rf.snapShotIndex())
+		reply.Success = false
+		reply.Term = rf.currentTerm
+		reply.XLen = rf.len()
+		return
+	}
 	if rf.len() <= args.PrevLogIndex {
 		DPrintf("%v %v reply false, len: %v <= prevLogIndex: %v",
 			rf.state, rf.me, rf.len(), args.PrevLogIndex)
@@ -129,7 +140,7 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 		rf.needApply.Broadcast()
 	}
 	if len(args.Entries) > 0 { // ignore heartbeat(too many, influent debug)
-		DPrintf("%v finish receiving Entries (size: %v) from %v", rf.me, len(args.Entries), args.LeaderID)
+		DPrintf("Server %v finish receiving Entries (size: %v) from %v", rf.me, len(args.Entries), args.LeaderID)
 	}
 }
 func (rf *Raft) sendAppendEntries(server int, heartBeat bool) {
@@ -151,13 +162,14 @@ func (rf *Raft) sendAppendEntries(server int, heartBeat bool) {
 			prevLogTerm = rf.getTerm(prevLogIndex)
 		} else {
 			nextIndex := rf.nextIndex[server]
-			if nextIndex <= rf.snapShotIndex() {
+			if !(nextIndex-1 >= rf.snapShotIndex()) {
 				rf.mu.Unlock()
 				rf.sendSanpShot(server)
 				return
 			} else {
 				index := nextIndex - rf.snapShotIndex()
-				entries = rf.log[index:]
+				entries = make([]LogEntry, len(rf.log)-index)
+				copy(entries, rf.log[index:])
 				prevLogIndex = nextIndex - 1
 				prevLogTerm = rf.getTerm(prevLogIndex)
 			}
@@ -209,7 +221,7 @@ func (rf *Raft) sendAppendEntries(server int, heartBeat bool) {
 			return
 		} else {
 			rf.mu.Lock()
-			rf.quickUpdateNextIndex(&reply, server)
+			rf.updateNextIndex(&reply, server)
 			// if rf.nextIndex[server] > 1 && rf.get(rf.nextIndex[server]-1).Term != reply.Term {
 			// 	rf.nextIndex[server]--
 			// 	DPrintf("%v %v receive failed from %v, accord reply.Term: %v, update nextIndex[%v] to %v",
@@ -222,7 +234,7 @@ func (rf *Raft) sendAppendEntries(server int, heartBeat bool) {
 	}
 }
 
-func (rf *Raft) quickUpdateNextIndex(reply *RequestAppendReply, server int) {
+func (rf *Raft) updateNextIndex(reply *RequestAppendReply, server int) {
 	if reply.XTerm != 0 {
 		xIndex := -1
 		for i, entry := range rf.log {
@@ -248,17 +260,10 @@ func (rf *Raft) quickUpdateNextIndex(reply *RequestAppendReply, server int) {
 
 func (rf *Raft) sendHeartBeat() {
 	for !rf.killed() {
-
-		rf.mu.Lock()
-		isLeader := rf.state == LEADER
-		state, me := rf.state, rf.me
-		rf.mu.Unlock()
-
-		if !isLeader {
-			DPrintf("%v %v is not Leader anymore, stop send heartbeat", state, me)
+		if !rf.isLeader() {
+			DPrintf("Server %v is not Leader anymore, stop send heartbeat", rf.me)
 			return
 		}
-
 		for server := range rf.peers {
 			if server != rf.me {
 				go func(server int) {
