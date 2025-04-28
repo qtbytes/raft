@@ -75,7 +75,7 @@ func (rf *Raft) updateCommitIndex() {
 		copy(sorted, rf.matchIndex)
 		sort.Ints(sorted)
 		N := sorted[(len(rf.peers)+1)/2]
-		if N > rf.commitIndex && rf.get(N).Term == rf.currentTerm {
+		if N > rf.commitIndex && N < rf.len() && rf.get(N).Term == rf.currentTerm {
 			DPrintf("After check matchIndex, %v %v update commitIndex to %v", rf.state, rf.me, N)
 			rf.commitIndex = N
 			rf.needApply.Broadcast()
@@ -96,16 +96,19 @@ func (rf *Raft) apply() {
 		for !(rf.commitIndex > rf.lastApplied) {
 			rf.needApply.Wait()
 		}
-		start := rf.lastApplied + 1
+		start := rf.lastApplied
 		end := rf.commitIndex
-		entries := rf.log[start-rf.snapShotIndex() : end-rf.snapShotIndex()+1]
+		entries := make([]LogEntry, end-start)
+		copy(entries, rf.log[start+1-rf.snapShotIndex():end+1-rf.snapShotIndex()])
 		rf.needApply.L.Unlock()
+
 		for _, entry := range entries {
 			rf.applyCh <- entry.Entry
 		}
 
 		rf.mu.Lock()
-		DPrintf("%v %v apply entries %v to state machine", rf.state, rf.me, entries)
+		DPrintf("%v %v apply entries[%v:%v] in term %v", rf.state, rf.me,
+			start+1, end+1, rf.currentTerm)
 		rf.lastApplied = max(rf.lastApplied, end)
 		DPrintf("%v %v update lastApplied to %v", rf.state, rf.me, rf.lastApplied)
 		rf.mu.Unlock()
@@ -157,4 +160,11 @@ func (rf *Raft) getTerm(i int) (term int) {
 		term = rf.get(i).Term
 	}
 	return
+}
+
+func (rf *Raft) savePartLog(entries []LogEntry) {
+	log := make([]LogEntry, len(entries))
+	copy(log[1:], entries[1:])
+	log[0] = LogEntry{Term: entries[0].Term, Index: entries[0].Index}
+	rf.log = log
 }
