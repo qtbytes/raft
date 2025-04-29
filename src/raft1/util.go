@@ -10,7 +10,7 @@ import (
 
 // Debugging
 
-func DPrintf(format string, a ...interface{}) {
+func DPrintf(format string, a ...any) {
 	if os.Getenv("DEBUG") == "1" {
 		log.Printf(format, a...)
 	}
@@ -160,9 +160,15 @@ func (rf *Raft) getTerm(i int) (term int) {
 	return
 }
 
+func (rf *Raft) appendNewLog(entry LogEntry) {
+	rf.log = append(rf.log, entry)
+	rf.persist()
+}
+
 func (rf *Raft) savePartLog(entries []LogEntry) {
 	log := make([]LogEntry, len(entries))
 	copy(log[1:], entries[1:])
 	log[0] = LogEntry{Term: entries[0].Term, Index: entries[0].Index}
 	rf.log = log
+	rf.persist()
 }

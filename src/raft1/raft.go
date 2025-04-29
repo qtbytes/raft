@@ -144,17 +144,11 @@ func (rf *Raft) Start(command any) (int, int, bool) {
 
 	rf.mu.Lock()
 
-	index := rf.len()
-	term := rf.currentTerm
-	isLeader := rf.state == LEADER
-
+	index, term, isLeader := rf.len(), rf.currentTerm, rf.state == LEADER
 	entry := LogEntry{term, index, raftapi.ApplyMsg{CommandValid: true, Command: command, CommandIndex: index}}
 
 	DPrintf("%v %v receive log entry %v from clients", rf.state, rf.me, entry)
-
-	rf.log = append(rf.log, entry)
-	rf.persist()
-
+	rf.appendNewLog(entry)
 	rf.mu.Unlock()
 
 	for server := range rf.peers {
