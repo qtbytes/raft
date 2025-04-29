@@ -34,12 +34,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 
 	if args.Term > rf.currentTerm {
-		DPrintf("%v %v find Candidate %v has larger Term, switch to Follower",
-			rf.state, rf.me, args.CandidateID)
-		rf.currentTerm = args.Term
-		rf.votedFor = -1
-		rf.state = FOLLOWER
-		rf.persist()
+		rf.switchToFollower(args.CandidateID, args.Term)
 	}
 
 	// check candidate’s log is at least as up-to-date as receiver’s log

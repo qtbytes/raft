@@ -46,54 +46,36 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 
 	// 1. Reply false if term < currentTerm (§5.1)
 	if args.Term < rf.currentTerm {
-		DPrintf("%v %v reject AppendEntries from %v, because term: %v > %v", rf.state, rf.me,
+		DPrintf("Server %v reject AppendEntries from %v, because term: %v > %v", rf.me,
 			args.LeaderID, rf.currentTerm, args.Term)
-		reply.Success = false
-		reply.Term = rf.currentTerm
+		reply.Success, reply.Term = false, rf.currentTerm
 		return
 	}
 
-	rf.resetElectionTimer()
+	rf.switchToFollower(args.LeaderID, args.Term)
 
-	term, votedFor := rf.currentTerm, rf.votedFor
-	rf.currentTerm = args.Term
-	rf.votedFor = -1
-	if term != rf.currentTerm || votedFor != rf.votedFor {
-		rf.persist()
-	}
-	rf.state = FOLLOWER
-
-	reply.Success = true
-	reply.Term = rf.currentTerm
-
-	DPrintf("%v %v received Entries (size: %v) from %v",
-		rf.state, rf.me, len(args.Entries), args.LeaderID)
+	// DPrintf("%v %v received Entries (size: %v) from %v",
+	// 	rf.state, rf.me, len(args.Entries), args.LeaderID)
 
 	// 2. Reply false if log doesn’t contain an entry at prevLogIndex
 	// whose term matches prevLogTerm (§5.3)
 	if args.PrevLogIndex < rf.snapShotIndex() {
-		DPrintf("Unexpected error: prevLogIndex %v <= snapShotIndex %v", args.PrevLogIndex, rf.snapShotIndex())
-		reply.Success = false
-		reply.Term = rf.currentTerm
-		reply.XLen = rf.len()
+		DPrintf("Server %v receive unexpected appendEntries: prevLogIndex %v < snapShotIndex %v",
+			rf.me, args.PrevLogIndex, rf.snapShotIndex())
+		reply.Success, reply.Term, reply.XLen = false, rf.currentTerm, rf.len()
 		return
 	}
 	if rf.len() <= args.PrevLogIndex {
-		DPrintf("%v %v reply false, len: %v <= prevLogIndex: %v",
-			rf.state, rf.me, rf.len(), args.PrevLogIndex)
-		reply.Success = false
-		reply.Term = rf.currentTerm
-		reply.XLen = rf.len()
+		DPrintf("Server %v reply false, len: %v <= prevLogIndex: %v",
+			rf.me, rf.len(), args.PrevLogIndex)
+		reply.Success, reply.Term, reply.XLen = false, rf.currentTerm, rf.len()
 		return
 	}
-
 	entry := rf.get(args.PrevLogIndex)
 	if entry.Term != args.PrevLogTerm {
-		DPrintf("%v %v reply false, log %+v don't match (index: %v, term: %v)",
-			rf.state, rf.me, entry, args.PrevLogIndex, args.PrevLogTerm)
-		reply.Success = false
-		reply.Term = rf.currentTerm
-		reply.XTerm = entry.Term
+		DPrintf("Server %v reply false, log %+v don't match (index: %v, term: %v)",
+			rf.me, entry, args.PrevLogIndex, args.PrevLogTerm)
+		reply.Success, reply.Term, reply.XTerm = false, rf.currentTerm, entry.Term
 		for _, entry := range rf.log {
 			if entry.Term == reply.XTerm {
 				reply.XIndex = entry.Index
@@ -105,29 +87,13 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 
 	// 3. If an existing entry conflicts with a new one (same index
 	// but different terms), delete the existing entry and all that follow it (§5.3)
-	p := len(rf.log)
-
-	for _, entry := range args.Entries {
-		i := entry.Index
-		if i < rf.len() && rf.get(i).Term != entry.Term {
-			p = i
-			break
-		}
-	}
-
-	if p != len(rf.log) {
-		DPrintf("%v %v Log[%v] is conflict with new entry, delete log[%v:]", rf.state, rf.me, p, p)
-		rf.log = rf.log[:p]
-		rf.persist()
-	}
-
 	// 4. Append any new entries not already in the log
-	for i, entry := range args.Entries {
-		if entry.Index >= rf.len() {
-			entries := args.Entries[i:]
-			DPrintf("%v %v append new entries %v to log", rf.state, rf.me, entries)
-			rf.log = append(rf.log, entries...)
-			rf.persist()
+	for index, entry := range args.Entries {
+		i := entry.Index
+		if i >= rf.len() || rf.getTerm(i) != entry.Term {
+			entries := args.Entries[index:]
+			DPrintf("Server %v append new entries %v to log", rf.me, entries)
+			rf.savePartLog(append(rf.log[:i-rf.snapShotIndex()], entries...))
 			break
 		}
 	}
@@ -136,12 +102,11 @@ func (rf *Raft) AppendEntries(args *RequestAppendArgs, reply *RequestAppendReply
 	// set commitIndex = min(leaderCommit, index of last new entry)
 	if args.LeaderCommit > rf.commitIndex {
 		rf.commitIndex = min(args.LeaderCommit, rf.len()-1)
-		DPrintf("%v %v update commitIndex to %v", rf.state, rf.me, rf.commitIndex)
+		DPrintf("Server %v update commitIndex to %v", rf.me, rf.commitIndex)
 		rf.needApply.Broadcast()
 	}
-	if len(args.Entries) > 0 { // ignore heartbeat(too many, influent debug)
-		DPrintf("Server %v finish receiving Entries (size: %v) from %v", rf.me, len(args.Entries), args.LeaderID)
-	}
+
+	reply.Success, reply.Term = true, rf.currentTerm
 }
 func (rf *Raft) sendAppendEntries(server int, heartBeat bool) {
 	for !rf.killed() {
